@@ -26,23 +26,29 @@ Setup installs dependencies, builds the plugin, registers it with OpenCode, and 
 opencode-remote
 ```
 
-The first-run wizard asks for **IP/hostname, port, username, and password or key** as separate fields. Press Enter to use port **22** or keep an existing value. It then asks for the remote project directory and whether sudo needs a password. Press Ctrl+C to exit. Password prompts remain visible, but typed passwords display no characters or asterisks; press Enter to submit. Each password has a separate choice to remember it. **SSH login and sudo passwords are independent**: password login works without enabling sudo.
+With no saved connections, the wizard first asks for a connection name, then **IP/hostname, port, username, and password or key** as separate fields. Press Enter to use port **22** or keep an existing value. It then asks for the remote project directory and whether sudo needs a password. Press Ctrl+C to exit. Password prompts remain visible, but typed passwords display no characters or asterisks; press Enter to submit. Each password has a separate choice to remember it. **SSH login and sudo passwords are independent**: password login works without enabling sudo.
 
 For key authentication, choose **2** and enter the local private key path, such as `~/.ssh/id_ed25519`, `~/.ssh/id_rsa`, or `C:\Users\me\My Keys\id_rsa`. Enter the path directly, without quotes or SSH flags. Common key paths are suggested when present; choose the private key, not its `.pub` counterpart. Alternatively enter `agent` to use the SSH agent referenced by `SSH_AUTH_SOCK`. Load passphrase-protected keys into your agent first, then choose this option.
 
-Later launches reuse your connection settings. Successfully remembered passwords are retrieved automatically; otherwise the launcher prompts each time. Key authentication with no sudo password starts directly. The wizard finishes by showing commands to launch, edit, and view configuration.
+**Every interactive launch selects a server and confirms its working directory.** The menu lists saved connection names, accounts, hosts, and ports. Press Enter to select the last-used connection, or enter `0` to create another.
+
+The directory prompt shows the selected connection’s last path. Press Enter to reuse it, or enter a new absolute path to launch there and remember it for next time. A connection without a previous path requires one. Each connection keeps its own directory.
+
+After directory selection, remembered passwords are retrieved automatically; otherwise the launcher prompts. Key authentication without sudo needs no password prompt. Legacy single-connection settings migrate automatically into the first profile, preserving the directory and credential preferences. Existing session history remains available for the same host and directory.
 
 The install and launch commands are the same on Linux, macOS, and Windows. Setup uses `npm link`, so **keep the source directory**. Rerun `npm run setup` after moving it. The existing `launchers/remote-opencode.sh`, `.ps1`, and `.bat` scripts remain compatibility wrappers for the same CLI. Terminal prompts currently use Chinese; command names and configuration keys are shown below.
 
 ## ⚙️ Change configuration
 
-Use the interactive editor; press Enter to keep a current value:
+Open the connection management menu:
 
 ```bash
 opencode-remote config
 ```
 
-Or update individual settings:
+Choose **create, edit, delete, or list connections**. Editing and deleting ask which connection to use; deletion requires confirmation and preserves session history and system credentials, which may be shared with other profiles. Use `config forget-password` to clear credentials.
+
+Or update individual settings for the **last-selected connection**. Its `workdir` is the default offered on the next launch:
 
 ```bash
 opencode-remote config set workdir /home/project
@@ -51,7 +57,9 @@ opencode-remote config set sudo true
 
 | Command | Purpose |
 | :--- | :--- |
-| `opencode-remote config show` | Show settings and their sources, without revealing passwords |
+| `opencode-remote config new` | Create a connection directly |
+| `opencode-remote config list` | List connections and their last directories |
+| `opencode-remote config show` | List connections and show effective settings for the last-selected connection, without passwords |
 | `opencode-remote config unset <key>` | Remove a saved value; use its default or prompt next time |
 | `opencode-remote config forget-password` | Delete remembered passwords for all tracked targets |
 | `opencode-remote config reset` | Confirm, then clear settings and passwords; keep session history |
@@ -87,7 +95,7 @@ The interactive wizard reads existing connection settings, pre-fills the host, p
 | `pool-file-size` | `REMOTE_POOL_FILE_SIZE` | `2` |
 | `pool-stagger-ms` | `REMOTE_POOL_STAGGER_MS` | `0` milliseconds |
 
-Supply passwords through `REMOTE_PASSWORD` and `REMOTE_SUDO_PASSWORD` for automation; these are never automatically remembered. Providing `REMOTE_SUDO_PASSWORD` enables the sudo-password configuration unless `REMOTE_SUDO` is explicitly set. Unattended launches need all required settings and credentials in advance; missing interactive input produces an immediate error.
+Supply passwords through `REMOTE_PASSWORD` and `REMOTE_SUDO_PASSWORD` for automation; these are never automatically remembered. Providing `REMOTE_SUDO_PASSWORD` enables the sudo-password configuration unless `REMOTE_SUDO` is explicitly set. An explicit `REMOTE_SSH` skips interactive server selection; `REMOTE_WORKDIR` skips the directory prompt. Environment overrides do not replace saved directories. Unattended launches with multiple profiles must explicitly provide `REMOTE_SSH`; supply `REMOTE_WORKDIR` and credentials too to make the target unambiguous.
 
 ```bash
 opencode-remote config set pool-command-size 2

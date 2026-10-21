@@ -1,8 +1,9 @@
 import fs from "node:fs"
+import { randomUUID } from "node:crypto"
 import { parseSshCommand } from "../config.js"
 import { TerminalPrompt, type Prompter } from "./prompt.js"
 import { SystemCredentials, credentialWarning, forgetPasswords, type CredentialStore } from "./credentials.js"
-import { configFile, loadState, saveState, effective, settings, settingName, validate, targetId, childEnvironment, type State, type Setting, type SecretKind } from "./settings.js"
+import { configFile, loadState, saveState, effective, settings, settingName, validate, targetId, childEnvironment, type Profile, type State, type Setting, type SecretKind } from "./settings.js"
 import { checkInstallation, checkAuthentication, checkRemote, launch, packageFile } from "./runtime.js"
 import { configureConnection } from "./connection.js"
 
@@ -10,7 +11,9 @@ const help = `OpenCode Remote — 在任意目录连接远程工作区
 
 用法：
   opencode-remote                       连接；首次使用会引导配置
-  opencode-remote config                交互修改连接与密码记忆设置
+  opencode-remote config                新建、修改、删除或查看连接
+  opencode-remote config new            直接新建连接
+  opencode-remote config list           列出已保存连接
   opencode-remote config show           查看配置及来源（不显示密码）
   opencode-remote config set <项> <值>  修改单项配置
   opencode-remote config unset <项>     删除某项保存值
@@ -30,7 +33,10 @@ const help = `OpenCode Remote — 在任意目录连接远程工作区
 
 配置项：ssh, workdir, auth (password/key), sudo (true/false), mirror,
         pool-command-size (默认 3), pool-file-size (默认 2), pool-stagger-ms (默认 0)
+每次启动选择服务器，再确认工作目录；回车沿用该服务器上次路径。
+config set/unset 修改上次选择的连接。
 优先级：REMOTE_* 环境变量 > 保存的配置 > 默认值。
+自动化可用 REMOTE_SSH、REMOTE_WORKDIR 明确指定目标并跳过对应询问。
 密钥认证：在配置向导填写私钥路径，或输入 agent 使用本机 SSH agent。
 SSH 与 sudo 密码分别询问，可选择记入系统凭据库；不会保存到配置文件。
 更新：源码目录运行 git pull，再运行 npm run setup。
@@ -117,12 +123,69 @@ export class RemoteCLI {
     return password
   }
 
-  async configure() {
+  private async chooseProfile(allowNew = false): Promise<Profile | undefined> {
+    if (!this.state.profiles.length) {
+      if (allowNew) return undefined
+      throw new Error("还没有连接配置，请先新建连接。")
+    }
+    this.listProfiles()
+    if (allowNew) this.print("  0. 新建连接")
+    const selected = this.state.profiles.findIndex(p => p.id === this.state.selected)
+    while (true) {
+      const answer = (await this.prompt.text("请选择连接编号", String(selected < 0 ? 1 : selected + 1))).trim()
+      if (allowNew && answer === "0") return undefined
+      if (/^\d+$/.test(answer) && this.state.profiles[Number(answer) - 1]) return this.state.profiles[Number(answer) - 1]
+      this.print("请输入列表中的连接编号。")
+    }
+  }
+
+  private listProfiles() {
+    this.print("\n已保存的连接：")
+    this.state.profiles.forEach((profile, index) => {
+      const target = profile.values.ssh ? parseSshCommand(String(profile.values.ssh)) : undefined
+      this.print(`  ${index + 1}. ${profile.name}    ${target ? `${target.user}@${target.host}:${target.port}` : "尚未设置服务器"}${profile.id === this.state.selected ? "（上次选择）" : ""}\n     上次工作目录：${profile.values.workdir || "尚未填写"}`)
+    })
+    if (!this.state.profiles.length) this.print("  暂无连接。")
+  }
+
+  private async manage() {
+    this.print("\n1. 新建连接\n2. 修改连接\n3. 删除连接\n4. 查看连接列表\n0. 返回")
+    while (true) {
+      const choice = (await this.prompt.text("请选择操作", "4")).trim()
+      if (choice === "0") return
+      if (choice === "1") return this.configure(undefined, true)
+      if (choice === "4") return this.listProfiles()
+      if (["2", "3"].includes(choice)) {
+        if (!this.state.profiles.length) { this.print("还没有连接，请选择 1 新建。 "); continue }
+        const profile = (await this.chooseProfile())!
+        if (choice === "2") return this.configure(profile)
+        if (await this.prompt.confirm(`删除连接“${profile.name}”？会话历史和系统凭据将保留`)) {
+          this.state.profiles = this.state.profiles.filter(p => p.id !== profile.id)
+          if (this.state.selected === profile.id) this.state.selected = this.state.profiles[0]?.id
+          this.persist()
+          this.print("连接已删除。需要清除已记住密码时运行 config forget-password。")
+        }
+        return
+      }
+      this.print("请输入 0 到 4 之间的操作编号。")
+    }
+  }
+
+  async configure(profile = this.state.profiles.find(p => p.id === this.state.selected), fresh = false) {
     this.print("\nOpenCode Remote · 连接配置")
     this.print("按下面 4 个步骤填写。有默认值时可直接回车使用；按 Ctrl+C 随时取消。")
-    const defaults = effective(this.state, this.env).values
+    if (fresh) profile = undefined
+    const base = fresh ? (this.state.profiles.length ? {} : this.state.defaults) : profile?.values || this.state.values
+    const defaults = effective({ values: base }, {}).values
+    let name = ""
+    while (!name) {
+      const answer = (await this.prompt.text("连接名称", profile?.name || "")).trim()
+      if (!answer || /[\x00-\x1f\x7f]/.test(answer)) { this.print("请填写连接名称，例如开发服务器。"); continue }
+      if (this.state.profiles.some(p => p.id !== profile?.id && p.name === answer)) { this.print("这个名称已存在，请换一个名称。"); continue }
+      name = answer
+    }
     const connection = await configureConnection(this.prompt, this.print, defaults, this.env)
-    const values = { ...this.state.values, ...connection }
+    const values = { ...base, ...connection }
     checkAuthentication(values, this.env)
     const id = targetId(connection.ssh)
     if (connection.auth === "password") await this.password(id, "ssh", true)
@@ -133,11 +196,18 @@ export class RemoteCLI {
     this.print("普通登录请选择“否”（n）；需要执行带密码的 sudo 命令时选“是”（y）。")
     values.sudo = await this.prompt.confirm("需要 sudo 密码吗", defaults.sudo === true)
     if (values.sudo) await this.password(id, "sudo", true)
-    this.state.values = values
+    if (profile) { profile.name = name; profile.values = values }
+    else {
+      profile = { id: randomUUID(), name, values }
+      this.state.profiles.push(profile)
+      this.state.defaults = {}
+    }
+    this.state.selected = profile.id
     this.persist()
     const parsed = parseSshCommand(connection.ssh)
     this.print([
       `\n连接配置已保存：${this.file}`,
+      `  连接名称：${name}`,
       `  服务器：${parsed.host}`,
       `  端口：${parsed.port}`,
       `  账号：${parsed.user}`,
@@ -153,7 +223,8 @@ export class RemoteCLI {
 
   show() {
     const { values, sources } = effective(this.state, this.env)
-    this.print(`配置文件：${this.file}`)
+    this.listProfiles()
+    this.print(`配置文件：${this.file}\n以下为上次选择的连接（config set/unset 修改此连接）：`)
     for (const key of Object.keys(settings) as Setting[]) this.print(`${key}: ${values[key] === "" ? "(未设置)" : values[key]}  [${sources[key]}]`)
     const record = values.ssh ? this.state.credentials[targetId(String(values.ssh))] : undefined
     for (const kind of ["ssh", "sudo"] as const) {
@@ -163,13 +234,22 @@ export class RemoteCLI {
   }
 
   async configCommand(args: string[]) {
-    if (!args.length) return this.configure()
+    if (!args.length) return this.manage()
+    if (args.length === 1 && args[0] === "new") return this.configure(undefined, true)
+    if (args.length === 1 && args[0] === "list") return this.listProfiles()
     const [command, key, value] = args
     if (command === "show" && args.length === 1) return this.show()
     if ((command === "set" && args.length === 3) || (command === "unset" && args.length === 2)) {
       const name = settingName(key)
       if (command === "set") this.state.values[name] = validate(name, value)
       else delete this.state.values[name]
+      if (!this.state.profiles.length && this.state.values.ssh) {
+        const parsed = parseSshCommand(String(this.state.values.ssh))
+        const profile = { id: randomUUID(), name: `${parsed.user}@${parsed.host}`, values: this.state.values }
+        this.state.profiles.push(profile)
+        this.state.selected = profile.id
+        this.state.defaults = {}
+      }
       this.persist()
       this.print(`已${command === "set" ? "更新" : "删除"} ${name}。运行 opencode-remote 连接。`)
       if (this.env[settings[name].env]) this.print(`注意：当前 ${settings[name].env} 环境变量仍优先。`)
@@ -192,13 +272,30 @@ export class RemoteCLI {
     throw new Error("配置命令格式不正确。请运行 opencode-remote --help。")
   }
 
-  async connection(doctor = false) {
+  async connection(doctor = false, interactive = Boolean(process.stdin.isTTY && process.stderr.isTTY)) {
+    let created = false
+    if (interactive && !this.env.REMOTE_SSH) {
+      const profile = await this.chooseProfile(true)
+      if (profile) this.state.selected = profile.id
+      else { await this.configure(undefined, true); created = true }
+    } else if (!interactive && this.state.profiles.length > 1 && !this.env.REMOTE_SSH) {
+      throw new Error("多个连接需要交互选择；自动化请通过 REMOTE_SSH 和 REMOTE_WORKDIR 明确指定目标。")
+    }
     let values = effective(this.state, this.env).values
-    if (!values.ssh || !values.workdir) {
+    if (!values.ssh) {
       if (doctor) throw new Error("缺少连接配置。请运行 opencode-remote config。")
       await this.configure()
+      created = true
       values = effective(this.state, this.env).values
     }
+    if (!interactive && !values.workdir) throw new Error("缺少远程工作目录，请设置 REMOTE_WORKDIR 或交互启动。")
+    if (interactive && !created && !this.env.REMOTE_WORKDIR) {
+      this.print(`上次工作目录：${values.workdir || "尚未填写"}`)
+      values.workdir = await this.field("workdir", "本次远程工作目录", String(values.workdir || ""))
+      // An environment-only target must not overwrite a saved server's directory.
+      if (!this.env.REMOTE_SSH) this.state.values.workdir = values.workdir
+    }
+    if (interactive && !this.env.REMOTE_SSH) this.persist()
     checkAuthentication(values, this.env)
     this.print(`远程连接：${values.ssh}\n工作目录：${values.workdir}`)
     const id = targetId(String(values.ssh))

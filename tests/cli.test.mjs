@@ -49,7 +49,7 @@ function fixture(name, answers = [], store = new MemoryCredentials(), env = {}) 
 }
 
 test('password login works without sudo, saves no plaintext, and reuses remembered credentials', async () => {
-  const f = fixture('remember', ['host', '', 'user', '', 'ssh-secret', true, '/home/project', false])
+  const f = fixture('remember', ['remember', 'host', '', 'user', '', 'ssh-secret', true, '/home/project', false])
   await f.cli.configure()
   assert(f.prompts.find(p => p.label.startsWith('SSH 登录密码')).secret)
   const persisted = fs.readFileSync(f.file, 'utf8')
@@ -64,7 +64,7 @@ test('password login works without sudo, saves no plaintext, and reuses remember
 })
 
 test('wizard explains each step and retries empty required input with an example', async () => {
-  const f = fixture('guidance', ['', 'ssh user@host', '192.168.1.10', '0', '65536', '22x', '2222', '', 'user@host', 'alice', '3', '1', 'login', false, 'relative', '/work', false])
+  const f = fixture('guidance', ['guidance', '', 'ssh user@host', '192.168.1.10', '0', '65536', '22x', '2222', '', 'user@host', 'alice', '3', '1', 'login', false, 'relative', '/work', false])
   await f.cli.configure()
   const output = f.output.join('\n')
   for (const step of ['[1/4]', '[2/4]', '[3/4]', '[4/4]']) assert(output.includes(step))
@@ -84,7 +84,7 @@ test('wizard explains each step and retries empty required input with an example
 })
 
 test('unremembered passwords prompt on next launch; sudo credentials are independent', async () => {
-  const f = fixture('prompt', ['host', '', 'user', '1', 'login', false, '/work', true, 'sudo-other', false])
+  const f = fixture('prompt', ['prompt', 'host', '', 'user', '1', 'login', false, '/work', true, 'sudo-other', false])
   await f.cli.configure()
   assert.equal(f.store.values.size, 0)
   const next = fixture('prompt', ['new-login', 'new-sudo'])
@@ -95,10 +95,10 @@ test('unremembered passwords prompt on next launch; sudo credentials are indepen
 })
 
 test('wizard pre-fills existing connection fields and retains advanced SSH options when editing', async () => {
-  const f = fixture('edit-connection', ['', '', '', '', 'login', false, '', false])
+  const f = fixture('edit-connection', ['edit-connection', '', '', '', '', 'login', false, '', false])
   f.cli.state.values = { ssh: 'ssh -v -oHostKeyAlgorithms=+ssh-rsa -o "Ciphers=aes128-ctr,aes256-ctr" -J jump -p 2222 -l alice server', auth: 'password', workdir: '/saved' }
   await f.cli.configure()
-  assert.deepEqual(f.prompts.slice(0, 3).map(p => p.defaultValue), ['server', '2222', 'alice'])
+  assert.deepEqual(f.prompts.slice(1, 4).map(p => p.defaultValue), ['server', '2222', 'alice'])
   const { values } = loadState(f.file)
   assert.equal(values.workdir, '/saved')
   assert(values.ssh.includes('-v'))
@@ -107,7 +107,7 @@ test('wizard pre-fills existing connection fields and retains advanced SSH optio
     host: 'server', port: 2222, user: 'alice', identity: undefined,
     extraOptions: ['-o', 'HostKeyAlgorithms=+ssh-rsa', '-o', 'Ciphers=aes128-ctr,aes256-ctr'],
   })
-  const edited = fixture('edit-connection', ['new-host', '2200', 'bob', '', 'new-login', false, '', false])
+  const edited = fixture('edit-connection', ['', 'new-host', '2200', 'bob', '', 'new-login', false, '', false])
   await edited.cli.configure()
   assert.deepEqual(parseSshCommand(loadState(f.file).values.ssh), {
     host: 'new-host', port: 2200, user: 'bob', identity: undefined,
@@ -118,7 +118,7 @@ test('wizard pre-fills existing connection fields and retains advanced SSH optio
 test('key wizard accepts a separate local path with spaces and retries missing or public key files', async () => {
   const key = path.join(temporary, 'my private key')
   fs.writeFileSync(key, 'synthetic-key-file')
-  const f = fixture('key-wizard', ['[2001:db8::1]', '', 'alice', '2', 'agent', `${key}.missing`, `${key}.pub`, temporary, key, '/work', false])
+  const f = fixture('key-wizard', ['key-wizard', '[2001:db8::1]', '', 'alice', '2', 'agent', `${key}.missing`, `${key}.pub`, temporary, key, '/work', false])
   await f.cli.configure()
   const parsed = parseSshCommand(loadState(f.file).values.ssh)
   assert.equal(parsed.host, '2001:db8::1')
@@ -133,7 +133,7 @@ test('key wizard accepts a separate local path with spaces and retries missing o
 })
 
 test('switching from key to password login removes the old identity and retains connection defaults', async () => {
-  const f = fixture('key-to-password', ['', '', '', '1', 'login', false, '', false])
+  const f = fixture('key-to-password', ['key-to-password', '', '', '', '1', 'login', false, '', false])
   f.cli.state.values = { ssh: 'ssh -i /old/private-key -p 2222 user@host', workdir: '/work', auth: 'key' }
   await f.cli.configure()
   assert.equal(f.prompts.find(p => p.label.startsWith('认证方式')).defaultValue, '2')
@@ -143,7 +143,7 @@ test('switching from key to password login removes the old identity and retains 
 })
 
 test('key wizard supports SSH agent without a private key path or login password', async () => {
-  const f = fixture('agent-wizard', ['host', '', 'user', '2', 'agent', '/work', false], undefined, { SSH_AUTH_SOCK: '/test-agent' })
+  const f = fixture('agent-wizard', ['agent-wizard', 'host', '', 'user', '2', 'agent', '/work', false], undefined, { SSH_AUTH_SOCK: '/test-agent' })
   await f.cli.configure()
   assert.equal(loadState(f.file).values.auth, 'key')
   assert.equal(parseSshCommand(loadState(f.file).values.ssh).identity, undefined)
@@ -152,13 +152,130 @@ test('key wizard supports SSH agent without a private key path or login password
 })
 
 test('cancelling a changed connection keeps previous connection values on disk', async () => {
-  const f = fixture('cancel-edit', ['new-host', '', 'new-user', '1', 'login', false])
+  const f = fixture('cancel-edit', ['cancel-edit', 'new-host', '', 'new-user', '1', 'login', false])
   const saved = { ssh: 'ssh old-user@old-host', workdir: '/old', auth: 'password' }
   f.cli.state.values = saved
   f.cli.persist()
   // No workdir answer is supplied, simulating termination before completing the wizard.
   await assert.rejects(f.cli.configure(), /Unexpected prompt/)
   assert.deepEqual(loadState(f.file).values, saved)
+})
+
+test('legacy settings migrate into a named profile with directory and credential identity intact', async () => {
+  const initial = fixture('migration')
+  fs.mkdirSync(path.dirname(initial.file), { recursive: true })
+  const ssh = 'ssh -p 2222 alice@legacy'
+  const id = targetId(ssh)
+  fs.writeFileSync(initial.file, JSON.stringify({ version: 1, values: { ssh, workdir: '/legacy', auth: 'password' }, credentials: { [id]: { ssh: true } } }))
+  initial.store.values.set(`${id}:ssh`, 'legacy-secret')
+  const migrated = fixture('migration', ['', ''], initial.store)
+  assert.equal(migrated.cli.state.version, 2)
+  assert.equal(migrated.cli.state.profiles[0].name, 'alice@legacy')
+  const connection = await migrated.cli.connection(false, true)
+  assert.equal(connection.values.workdir, '/legacy')
+  assert.equal(connection.env.REMOTE_PASSWORD, 'legacy-secret')
+  const saved = JSON.parse(fs.readFileSync(initial.file, 'utf8'))
+  assert.equal(saved.version, 2)
+  assert.equal(saved.profiles.length, 1)
+  assert.equal(saved.profiles[0].values.workdir, '/legacy')
+  assert(!JSON.stringify(saved).includes('legacy-secret'))
+})
+
+function profiles(f) {
+  f.cli.state.profiles = [
+    { id: 'a', name: 'Server A', values: { ssh: 'ssh alice@host-a', workdir: '/project-a', auth: 'password' } },
+    { id: 'b', name: 'Server B', values: { ssh: 'ssh bob@host-b', workdir: '/project-b', auth: 'password' } },
+  ]
+  f.cli.state.selected = 'a'
+  for (const p of f.cli.state.profiles) f.cli.state.credentials[targetId(p.values.ssh)] = { ssh: false }
+  f.cli.persist()
+}
+
+test('each launch selects a server and remembers its own directory without mixing passwords', async () => {
+  const f = fixture('profiles', ['9', '2', '/new-b', 'password-b'])
+  profiles(f)
+  const b = await f.cli.connection(false, true)
+  assert.equal(b.env.REMOTE_SSH, 'ssh bob@host-b')
+  assert.equal(b.env.REMOTE_PASSWORD, 'password-b')
+  assert.equal(b.values.workdir, '/new-b')
+  assert.equal(loadState(f.file).selected, 'b')
+  assert.equal(loadState(f.file).profiles[0].values.workdir, '/project-a')
+  const next = fixture('profiles', ['1', '', 'password-a'])
+  const a = await next.cli.connection(false, true)
+  assert.equal(next.prompts[0].defaultValue, '2')
+  assert.equal(next.prompts[1].defaultValue, '/project-a')
+  assert.equal(a.env.REMOTE_PASSWORD, 'password-a')
+  assert.equal(a.values.workdir, '/project-a')
+  const again = fixture('profiles', ['2', '', 'password-b'])
+  assert.equal((await again.cli.connection(false, true)).values.workdir, '/new-b')
+})
+
+test('new connection from launch menu keeps other profiles and asks directory only once', async () => {
+  const f = fixture('new-profile', ['0', 'Server A', 'Server C', 'host-c', '', 'carol', '2', 'agent', '/project-c', false], undefined, { SSH_AUTH_SOCK: '/agent' })
+  profiles(f)
+  const result = await f.cli.connection(false, true)
+  assert.equal(result.values.ssh, 'ssh -p 22 carol@host-c')
+  assert.equal(f.cli.state.profiles.length, 3)
+  assert.equal(f.cli.state.profiles[2].name, 'Server C')
+  assert.equal(f.cli.state.profiles[0].values.workdir, '/project-a')
+  assert.equal(f.prompts.filter(p => p.label.includes('工作目录')).length, 1)
+  assert(f.output.join('\n').includes('这个名称已存在'))
+})
+
+test('management edits only chosen profile and deletion confirms without removing shared credentials', async () => {
+  const f = fixture('manage', ['2', '2', 'Renamed B', '', '', '', '', 'new-password', false, '', false])
+  profiles(f)
+  await f.cli.configCommand([])
+  assert.equal(loadState(f.file).profiles[1].name, 'Renamed B')
+  assert.equal(loadState(f.file).profiles[0].name, 'Server A')
+  const cancel = fixture('manage', ['3', '2', false])
+  await cancel.cli.configCommand([])
+  assert.equal(loadState(f.file).profiles.length, 2)
+  const remove = fixture('manage', ['3', '2', true])
+  const credentials = loadState(f.file).credentials
+  await remove.cli.configCommand([])
+  assert.equal(loadState(f.file).selected, 'a')
+  assert.deepEqual(loadState(f.file).credentials, credentials)
+  assert.equal(loadState(f.file).profiles.length, 1)
+})
+
+test('automation specifies target explicitly and never overwrites another server directory', async () => {
+  const f = fixture('profile-env', [], undefined, { REMOTE_SSH: 'ssh robot@automated', REMOTE_WORKDIR: '/job', REMOTE_PASSWORD: 'env-secret' })
+  profiles(f)
+  const before = fs.readFileSync(f.file, 'utf8')
+  const result = await f.cli.connection(false, true)
+  assert.equal(result.values.workdir, '/job')
+  assert.equal(result.env.REMOTE_PASSWORD, 'env-secret')
+  assert.equal(f.prompts.length, 0)
+  assert.equal(fs.readFileSync(f.file, 'utf8'), before)
+  const ambiguous = fixture('profile-env')
+  await assert.rejects(ambiguous.cli.connection(false, false), /多个连接需要交互选择/)
+})
+
+test('a saved connection without a directory prompts for it without restarting setup', async () => {
+  const f = fixture('missing-dir', ['', '', 'relative', '/first', 'password'])
+  profiles(f)
+  delete f.cli.state.profiles[0].values.workdir
+  const result = await f.cli.connection(false, true)
+  assert.equal(result.values.workdir, '/first')
+  assert.equal(f.prompts.filter(p => p.label.includes('工作目录')).length, 3)
+  assert(!f.prompts.some(p => p.label === '连接名称'))
+})
+
+test('cancelling directory entry does not change the saved selected server', async () => {
+  const f = fixture('cancel-selection', ['2'])
+  profiles(f)
+  const before = fs.readFileSync(f.file, 'utf8')
+  await assert.rejects(f.cli.connection(false, true), /Unexpected prompt/)
+  assert.equal(fs.readFileSync(f.file, 'utf8'), before)
+})
+
+test('first named connection preserves preconfigured pool defaults', async () => {
+  const f = fixture('draft-defaults', ['First', 'host', '', 'alice', '2', 'agent', '/work', false], undefined, { SSH_AUTH_SOCK: '/agent' })
+  await f.cli.configCommand(['set', 'pool-command-size', '1'])
+  await f.cli.configCommand(['new'])
+  assert.equal(loadState(f.file).profiles[0].values['pool-command-size'], 1)
+  assert.deepEqual(loadState(f.file).defaults, {})
 })
 
 test('changing host, account, or port cannot retrieve another target password', async () => {

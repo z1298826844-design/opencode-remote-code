@@ -83,14 +83,16 @@ async function main() {
 安装完成！
 
 首次连接（任意目录）：  opencode-remote
-修改连接配置：          opencode-remote config
+管理多个连接：          opencode-remote config
+直接新建连接：          opencode-remote config new
 查看当前配置：          opencode-remote config show
 清除已记住密码：        opencode-remote config forget-password
 排查连接问题：          opencode-remote doctor
 完整操作说明：          opencode-remote --help
 
-首次启动依次填写 IP/主机名、端口（回车默认 22）、账号和密码/密钥，再填写远程目录。
-密码隐藏输入，可选记住；配置完成后，后续直接运行 opencode-remote。
+首次启动填写连接名称、IP/主机名、端口（默认 22）、账号和密码/密钥、远程目录。
+后续运行 opencode-remote：选服务器，再确认目录；回车沿用该连接上次路径，也可填写新路径。
+密码隐藏输入，可选记住；旧版配置会自动迁移。
 请保留源码目录：${root}
 更新或移动目录后：在该目录重新运行 npm run setup。
 `)

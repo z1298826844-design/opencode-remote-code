@@ -26,9 +26,11 @@ npm run setup
 opencode-remote
 ```
 
-首次启动按提示分别填写 **IP/主机名、端口、账号、密码或密钥**，脚本自动生成连接配置。端口默认 **22**，直接回车即可；其他已有值也可回车保留。按 Ctrl+C 可随时退出：
+没有连接记录时，会引导新建连接：先填写一个名称（例如“开发服务器”），再分别填写 **IP/主机名、端口、账号、密码或密钥**，脚本自动生成连接配置。端口默认 **22**，直接回车即可；其他已有值也可回车保留。按 Ctrl+C 可随时退出：
 
 ```text
+连接名称：开发服务器
+
 [1/4] 连接哪台远程机器？
 服务器 IP / 主机名（必填）：192.168.1.10
 SSH 端口 [回车使用：22]：
@@ -52,19 +54,38 @@ SSH 登录密码：
 
 选择 **2（SSH 密钥）** 时，按提示填写本机私钥路径，例如 `~/.ssh/id_ed25519`、`~/.ssh/id_rsa` 或 `C:\Users\me\My Keys\id_rsa`，无需加引号或填写 SSH 参数。常用路径存在时会自动提供默认值；请选择私钥，而非 `.pub` 公钥。也可输入 `agent` 使用当前 `SSH_AUTH_SOCK` 指向的 SSH agent；有口令的密钥请先载入 agent，再选择此方式。
 
-后续运行 `opencode-remote` 自动读取配置：成功记住密码后直接连接；未记住则每次隐藏输入。使用密钥且无需 sudo 密码时直接启动。配置完成后会显示启动、修改和查看配置的命令。
+**每次启动先选服务器，再确认本次工作目录：**
+
+```text
+已保存的连接：
+  1. 开发服务器    alice@192.168.1.10:22（上次选择）
+     上次工作目录：/home/alice/project-a
+  2. 测试服务器    root@192.168.1.20:2222
+     上次工作目录：/srv/test
+  0. 新建连接
+请选择连接编号 [回车使用：1]：
+
+上次工作目录：/home/alice/project-a
+本次远程工作目录 [回车使用：/home/alice/project-a]：
+```
+
+选择连接时回车使用上次选择的服务器，输入 `0` 新建连接。目录每次都会询问：回车沿用这台服务器上次的路径，输入新的绝对路径则使用并记住新路径；首次没有历史路径时必须填写。每条连接的目录独立记录。
+
+确认目录后读取或询问密码，再启动 OpenCode。成功记住的密码自动读取；未记住则隐藏输入。密钥登录且无需 sudo 密码时不再询问密码。旧版单连接配置会自动迁移为第一条连接，保留原目录和密码记忆设置；同一服务器、同一目录继续复用原会话历史。
 
 安装与启动命令在 Linux、macOS、Windows 上相同。安装使用 `npm link`，**请保留源码目录**；移动目录后重新运行 `npm run setup`。原有 `launchers/remote-opencode.sh`、`.ps1`、`.bat` 仍可使用，会转交给同一个命令入口。
 
 ## ⚙️ 修改配置
 
-最简单的方式是交互修改，回车保留原值：
+打开连接管理菜单：
 
 ```bash
 opencode-remote config
 ```
 
-也可以单独修改：
+菜单提供 **新建连接、修改连接、删除连接、查看连接列表**。修改和删除时先选择连接；删除需要确认，并保留会话历史和系统凭据（多个连接可能共用凭据）。如需清除密码，使用 `config forget-password`。
+
+也可以单独修改**上次选择的连接**，`workdir` 是它下次启动时提示的默认目录：
 
 ```bash
 opencode-remote config set workdir /home/project
@@ -73,7 +94,9 @@ opencode-remote config set sudo true
 
 | 命令 | 用途 |
 | :--- | :--- |
-| `opencode-remote config show` | 查看配置和生效来源，不显示密码 |
+| `opencode-remote config new` | 直接新建连接 |
+| `opencode-remote config list` | 查看全部连接和各自上次的目录 |
+| `opencode-remote config show` | 查看连接列表及上次选择连接的配置来源，不显示密码 |
 | `opencode-remote config unset <配置项>` | 删除保存值，恢复默认或下次填写 |
 | `opencode-remote config forget-password` | 清除所有登记目标的已记住密码 |
 | `opencode-remote config reset` | 确认后清空配置和密码，保留会话历史 |
@@ -109,7 +132,7 @@ opencode-remote config set ssh "ssh -oHostKeyAlgorithms=+ssh-rsa -p 2222 alice@h
 | `pool-file-size` | `REMOTE_POOL_FILE_SIZE` | `2` |
 | `pool-stagger-ms` | `REMOTE_POOL_STAGGER_MS` | `0` 毫秒 |
 
-密码可通过 `REMOTE_PASSWORD` 和 `REMOTE_SUDO_PASSWORD` 提供，环境变量中的密码不会自动记住。未显式设置 `REMOTE_SUDO` 时，提供 `REMOTE_SUDO_PASSWORD` 会启用 sudo 密码配置。无人值守运行必须提前提供所需配置和凭据，否则立即提示缺少交互输入。
+密码可通过 `REMOTE_PASSWORD` 和 `REMOTE_SUDO_PASSWORD` 提供，环境变量中的密码不会自动记住。未显式设置 `REMOTE_SUDO` 时，提供 `REMOTE_SUDO_PASSWORD` 会启用 sudo 密码配置。交互启动时，显式设置 `REMOTE_SSH` 会跳过连接选择，设置 `REMOTE_WORKDIR` 会跳过目录询问；环境变量不会覆盖文件中保存的目录。无人值守运行有多个连接时，必须通过 `REMOTE_SSH` 明确指定目标，并建议同时提供 `REMOTE_WORKDIR` 和所需凭据，避免误用上次连接。
 
 ```bash
 opencode-remote config set pool-command-size 2

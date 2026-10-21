@@ -17,13 +17,29 @@ export const settings = {
 export type Setting = keyof typeof settings
 export type Values = Partial<Record<Setting, string | number | boolean>>
 export type SecretKind = "ssh" | "sudo"
+export interface Profile { id: string; name: string; values: Values }
 export interface State {
-  version: 1
+  version: 2
+  profiles: Profile[]
+  selected?: string
+  defaults: Values
   values: Values
   // The values are memory preferences, never passwords. Keep old targets so reset can delete them.
   credentials: Record<string, Partial<Record<SecretKind, boolean>>>
 }
-export const emptyState = (): State => ({ version: 1, values: {}, credentials: {} })
+export const emptyState = (): State => {
+  const state = { version: 2, profiles: [], defaults: {}, credentials: {} } as unknown as State
+  // Active settings are a view; persist profiles only, without a second copy that can drift.
+  Object.defineProperty(state, "values", {
+    get() { return state.profiles.find(p => p.id === state.selected)?.values || state.defaults },
+    set(values: Values) {
+      const profile = state.profiles.find(p => p.id === state.selected)
+      if (profile) profile.values = values
+      else state.defaults = values
+    },
+  })
+  return state
+}
 export const configRoot = () => process.env.XDG_CONFIG_HOME || path.join(os.homedir(), ".config")
 export const configFile = () => path.join(configRoot(), "opencode-remote", "config.json")
 export const pluginFile = () => path.join(process.env.OPENCODE_CONFIG_DIR || path.join(configRoot(), "opencode"), "plugins", "remote-code.js")
@@ -58,9 +74,34 @@ export function loadState(file = configFile()): State {
   if (!fs.existsSync(file)) return emptyState()
   try {
     const data = JSON.parse(fs.readFileSync(file, "utf8"))
-    if (data.version !== 1 || !data.values || !data.credentials || typeof data.values !== "object" || typeof data.credentials !== "object" || Array.isArray(data.values) || Array.isArray(data.credentials)) throw new Error()
+    if (![1, 2].includes(data.version) || !data.credentials || typeof data.credentials !== "object" || Array.isArray(data.credentials)) throw new Error()
     const state = emptyState()
-    for (const [key, value] of Object.entries(data.values)) state.values[settingName(key)] = validate(settingName(key), value)
+    const readValues = (input: unknown): Values => {
+      if (!input || typeof input !== "object" || Array.isArray(input)) throw new Error()
+      const values: Values = {}
+      for (const [key, value] of Object.entries(input)) values[settingName(key)] = validate(settingName(key), value)
+      return values
+    }
+    if (data.version === 1) {
+      const values = readValues(data.values)
+      if (values.ssh) {
+        const parsed = parseSshCommand(String(values.ssh))
+        const id = randomUUID()
+        state.profiles.push({ id, name: `${parsed.user}@${parsed.host}`, values })
+        state.selected = id
+      } else state.defaults = values
+    } else {
+      state.defaults = readValues(data.defaults)
+      if (!Array.isArray(data.profiles)) throw new Error()
+      for (const profile of data.profiles) {
+        if (!profile || typeof profile.id !== "string" || !/^[a-zA-Z0-9-]+$/.test(profile.id)
+          || typeof profile.name !== "string" || !profile.name.trim() || /[\x00-\x1f\x7f]/.test(profile.name)
+          || state.profiles.some(p => p.id === profile.id || p.name === profile.name)) throw new Error()
+        state.profiles.push({ id: profile.id, name: profile.name, values: readValues(profile.values) })
+      }
+      if (data.selected !== undefined && !state.profiles.some(p => p.id === data.selected)) throw new Error()
+      state.selected = data.selected
+    }
     for (const [id, kinds] of Object.entries(data.credentials)) {
       if (!/^[a-f0-9]{64}$/.test(id) || !kinds || typeof kinds !== "object" || Array.isArray(kinds)) throw new Error()
       const record: Partial<Record<SecretKind, boolean>> = {}
@@ -88,7 +129,7 @@ export function saveState(state: State, file = configFile()) {
   }
 }
 
-export function effective(state: State, env: NodeJS.ProcessEnv = process.env) {
+export function effective(state: Pick<State, "values">, env: NodeJS.ProcessEnv = process.env) {
   const values: Values = {}
   const sources: Partial<Record<Setting, string>> = {}
   for (const key of Object.keys(settings) as Setting[]) {
