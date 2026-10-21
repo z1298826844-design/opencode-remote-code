@@ -8,6 +8,140 @@
 
 ---
 
+## 🚀 安装与启动
+
+本地准备 **Node.js 20+（含 npm）**、**Git** 和 **OpenCode CLI**，确认 `opencode --version` 可用。远程机器只需要 SSH 服务；本地不需要 `sshpass` 或 `rsync`。
+
+```bash
+git clone https://github.com/zz6zz666/opencode-remote-code.git
+cd opencode-remote-code
+npm run setup
+```
+
+`setup` 会安装依赖、构建插件、注册 OpenCode 插件和全局命令，并在结束时显示后续指引。如果 npm 的全局命令目录不在 `PATH` 中，会显示该目录和设置方法。
+
+**然后在任意目录运行：**
+
+```bash
+opencode-remote
+```
+
+首次启动会引导填写：
+
+```text
+SSH 连接命令：ssh user@host
+远程绝对目录：/home/project
+认证方式：[1] 密码 [2] SSH 密钥
+是否需要 sudo 密码：[y/N]
+SSH 登录密码：（隐藏输入）
+是否记住 SSH 登录密码：[y/N]
+```
+
+选择需要 sudo 后，还会单独询问 sudo 密码及是否记住。**SSH 登录密码与 sudo 密码彼此独立**，不用 sudo 也可以使用密码登录。
+
+后续启动自动读取配置：记住密码后直接连接；未记住则每次隐藏输入。密钥认证使用 SSH 命令中的 `-i`，或本地 `SSH_AUTH_SOCK` 指向的 agent；有口令的密钥请先载入 SSH agent。
+
+```text
+ssh -p 2222 user@host
+ssh -i /absolute/path/id_rsa user@host
+ssh -i "C:\Users\me\My Keys\id_rsa" user@host
+```
+
+安装与启动命令在 Linux、macOS、Windows 上相同。安装使用 `npm link`，**请保留源码目录**；移动目录后重新运行 `npm run setup`。原有 `launchers/remote-opencode.sh`、`.ps1`、`.bat` 仍可使用，会转交给同一个命令入口。
+
+## ⚙️ 修改配置
+
+最简单的方式是交互修改，回车保留原值：
+
+```bash
+opencode-remote config
+```
+
+也可以单独修改：
+
+```bash
+opencode-remote config set ssh "ssh -p 2222 user@new-host"
+opencode-remote config set workdir /home/project
+opencode-remote config set auth key
+opencode-remote config set sudo true
+```
+
+| 命令 | 用途 |
+| :--- | :--- |
+| `opencode-remote config show` | 查看配置和生效来源，不显示密码 |
+| `opencode-remote config unset <配置项>` | 删除保存值，恢复默认或下次填写 |
+| `opencode-remote config forget-password` | 清除所有登记目标的已记住密码 |
+| `opencode-remote config reset` | 确认后清空配置和密码，保留会话历史 |
+| `opencode-remote doctor` | 检查 OpenCode、插件注册、SSH 认证和远程目录，不执行 sudo |
+| `opencode-remote --help` | 查看操作指引和示例 |
+| `opencode-remote --version` | 查看版本 |
+
+连接配置保存到 `~/.config/opencode-remote/config.json`（设置了 `XDG_CONFIG_HOME` 时使用该目录）。环境变量优先于保存值；`config show` 会显示来源。清除保存配置不会清除当前 shell 中的环境变量。
+
+**密码记忆**使用系统凭据库：macOS Keychain、Windows Credential Manager、Linux Secret Service（如 GNOME Keyring/KWallet）。Linux 需要可用且已解锁的桌面凭据服务。服务不可用时会提示，本次仍可输入密码连接，不会退回明文存储。密码按远程主机、账号和端口区分；更换服务器或账号不会使用其他目标的密码。
+
+要更新已记住的密码，运行 `opencode-remote config`；要取消记忆，在向导中选择不记住，或运行 `config forget-password`。凭据库锁定导致删除失败时，命令会报错并保留索引，解锁后重试即可。
+
+<details>
+<summary>高级配置与自动化</summary>
+
+| 配置项 | 环境变量 | 默认值 |
+| :--- | :--- | :--- |
+| `ssh` | `REMOTE_SSH` | 必填，完整 SSH 命令 |
+| `workdir` | `REMOTE_WORKDIR` | 必填，远程绝对路径 |
+| `auth` | `REMOTE_AUTH` | `password`；未指定且 SSH 含 `-i` 时为 `key` |
+| `sudo` | `REMOTE_SUDO` | `false` |
+| `mirror` | `REMOTE_MIRROR` | `~/.opencode/mirrors/` |
+| `pool-command-size` | `REMOTE_POOL_COMMAND_SIZE` | `3` |
+| `pool-file-size` | `REMOTE_POOL_FILE_SIZE` | `2` |
+| `pool-stagger-ms` | `REMOTE_POOL_STAGGER_MS` | `0` 毫秒 |
+
+密码可通过 `REMOTE_PASSWORD` 和 `REMOTE_SUDO_PASSWORD` 提供，环境变量中的密码不会自动记住。未显式设置 `REMOTE_SUDO` 时，提供 `REMOTE_SUDO_PASSWORD` 会启用 sudo 密码配置。无人值守运行必须提前提供所需配置和凭据，否则立即提示缺少交互输入。
+
+```bash
+opencode-remote config set pool-command-size 2
+opencode-remote config set pool-stagger-ms 200
+```
+
+传递 OpenCode 参数时使用 `--` 分隔：
+
+```bash
+opencode-remote -- --continue
+opencode-remote -- run "查看远程项目结构"
+```
+
+启动器根据远程主机和工作目录进入固定的本地目录 `~/.opencode/remote-sessions/<host>_<workdir_slug>/`，避免从不同目录启动时找不到会话。已有普通主机名与路径对应的会话目录保持不变。
+
+插件仍只通过环境变量激活；不设置 `REMOTE_SSH` 时，直接运行 `opencode` 继续使用本地模式。
+
+</details>
+
+## 🔧 更新、排错与卸载
+
+更新时在源码目录运行：
+
+```bash
+git pull
+npm run setup
+```
+
+遇到问题先运行 `opencode-remote doctor`。找不到全局命令时，按 setup 输出把 npm 全局命令目录加入 `PATH` 并重开终端；也可在源码目录临时运行 `npm run remote`。连接失败时运行 `opencode-remote config` 检查 SSH、认证方式和目录。SSH 命令作为连接参数解析，支持常用 `-p`、`-i`、`-l` 与现有 `-o` 算法设置，不执行本地 shell，也不读取完整的 OpenSSH 配置或实现所有 SSH 选项。
+
+卸载前可选择清除配置和密码，然后移除插件入口与全局命令：
+
+```bash
+opencode-remote config reset
+# 在源码目录执行：
+npm run unregister
+npm uninstall -g opencode-remote-code
+```
+
+`config reset` 会询问确认，不删除会话历史。只想卸载并保留连接配置时，跳过第一行。自定义 `OPENCODE_CONFIG_DIR` 的用户，在安装、启动、卸载时使用相同的设置。插件通过独立的入口文件注册，不改写现有 `opencode.json`；从旧版迁移时，请移除手工添加的重复插件配置。
+
+开发验证：`npm run lint`、`npm run test:cli`。CLI 测试不需要外部 SSH 目标；原有 SSH 端到端测试仍使用 `.env.test`。
+
+---
+
 ## 💡 为什么需要 Remote Code？
 
 我是一名模拟 IC 工程师。日常工作依赖 **Cadence IC6.1.7 设计套件**，它运行在一台古老的 **CentOS 6 虚拟机**上。CentOS 6 的 glibc 版本无法安装任何现代化 agent 工具，Node.js、Python 3.11+ 甚至大多数现代 CLI 工具都无法运行。
@@ -40,141 +174,6 @@
 
 - **OpenCode 插件版**：深度绑定 OpenCode。它覆盖原生工具，把远端机器完全伪装成 agent workspace。运行时环境完全在远端，本地目录不会自然进入 agent 的普通视野。
 - **MCP server 版**：向任意 MCP 客户端暴露带命名空间的 `remote_*` 工具。本地和远端工作可以并存，agent 可以在本地维护设计笔记或查找表，同时在 SSH 目标上执行远端命令、编辑、patch、pull、push 和仿真任务。
-
----
-
-## 📋 前置要求
-
-- **OpenCode**（最新版本）
-- 远程机器上运行的 **SSH 服务**（**唯一的远程依赖**）
-
-> **注意**：本插件内部使用纯 Node.js 的 `ssh2` 库。你**不需要**在本地安装 `ssh`、`sshpass` 或 `rsync`。
-
----
-
-## 🚀 安装
-
-本插件包含外部依赖且需要构建，**必须从源码安装**。
-
-```bash
-# 1. 下载或克隆
-git clone https://github.com/zz6zz666/opencode-remote-code.git
-
-# 2. 安装依赖并构建
-cd opencode-remote-code
-npm install
-npm run build
-```
-
-构建完成后，选择以下任一方式：
-
-### 方式 A：复制到 OpenCode 插件目录（推荐）
-
-将构建好的插件复制到 OpenCode 插件目录，之后即可删除原始下载：
-
-```bash
-# Linux/macOS:
-cp -r . ~/.config/opencode/plugins/remote-code
-
-# Windows (PowerShell):
-Copy-Item -Recurse -Force . $env:USERPROFILE\.config\opencode\plugins\remote-code
-```
-
-> OpenCode 从 `~/.config/opencode/plugins/`（全局）或 `.opencode/plugins/`（项目级）加载本地插件。目录必须包含 `package.json` 和构建好的 `dist/` 文件夹。
-
-### 方式 B：直接引用源码路径（开发用）
-
-保持插件原位，让 OpenCode 直接引用：
-
-```json
-{
-  "plugin": ["/absolute/path/to/opencode-remote-code"]
-}
-```
-
-开发时可用 `npm run dev` 监听变更并自动重新构建。
-
----
-
-## 🎯 使用方式
-
-远程模式**仅通过环境变量激活**。OpenCode CLI 不识别 `--remote*` 参数，且 `opencode.json` 中的 plugin options 会因内部缓存而不可靠。
-
-### 启动脚本
-
-`launchers/` 目录下包含为各主流平台预制的启动脚本。**强烈建议使用它们**，因为它们解决了一个会话持久化问题：OpenCode 的会话与当前工作目录绑定，如果你从不同的本地文件夹启动，远程会话就会"消失"。这些启动脚本会根据远程目标自动派生一个稳定的本地会话目录，确保无论你从何处调用，会话始终持久。
-
-1. 根据你的平台复制对应的启动脚本到 `$PATH` 中的某个位置（或放在任何方便的位置）：
-
-   ```bash
-   # Linux / macOS
-   cp launchers/remote-opencode.sh ~/bin/remote-opencode
-   chmod +x ~/bin/remote-opencode
-
-   # Windows PowerShell
-   Copy-Item launchers\remote-opencode.ps1 $env:USERPROFILE\bin\remote-opencode.ps1
-
-   # Windows CMD
-   copy launchers\remote-opencode.bat %USERPROFILE%\bin\remote-opencode.bat
-   ```
-
-2. 编辑脚本中的 **"User Configuration"** 配置块，填入你的 `REMOTE_SSH`、`REMOTE_WORKDIR` 以及可选的认证信息。
-
-3. 用启动脚本代替 `opencode` 直接启动：
-
-   ```bash
-   remote-opencode
-   ```
-
-启动脚本会自动完成以下操作：
-- 创建并进入稳定的本地会话目录（例如 `~/.opencode/remote-sessions/host_home_project/`）
-- 导出所需的环境变量
-- 从该稳定目录启动 OpenCode
-
-如果你的远程是 legacy SSH 服务器（例如 OpenSSH 5.3），还可以取消脚本中可选的 **SSH 连接池调优** 变量注释，以调整并发连接数。
-
-### 配置选项
-
-| 环境变量                   | 说明                                          | 默认值                   |
-| :------------------------- | :-------------------------------------------- | :----------------------- |
-| `REMOTE_SSH`             | 完整的 SSH 连接命令（与终端输入格式完全一致） | *(必填)*               |
-| `REMOTE_WORKDIR`         | 远程工作目录（绝对路径）                      | *(必填)*               |
-| `REMOTE_MIRROR`          | 本地镜像根目录                                | `~/.opencode/mirrors/` |
-| `REMOTE_PASSWORD`        | SSH 登录密码                                  | *(可选)*               |
-| `REMOTE_SUDO_PASSWORD`   | 远程命令的 sudo 密码                          | *(可选)*               |
-| `REMOTE_POOL_COMMAND_SIZE` | SSH exec 连接池大小（`bash`/`glob`/`grep`） | `3`                    |
-| `REMOTE_POOL_FILE_SIZE`  | SFTP 连接池大小（`read`/`write`/`edit`/`patch`） | `2`                 |
-| `REMOTE_POOL_STAGGER_MS` | 顺序 SSH 握手之间的延迟（毫秒），用于兼容旧服务器 | `0`                 |
-
-若未设置 `REMOTE_SSH`，插件保持休眠，OpenCode 完全按本地模式运行。
-
-### 认证示例
-
-**密钥认证（推荐）：**
-
-```bat
-set "REMOTE_SSH=ssh -i C:\Users\me\.ssh\id_rsa user@host"
-set "REMOTE_WORKDIR=/home/project"
-```
-
-**密码认证：**
-
-```bat
-set "REMOTE_SSH=ssh user@host"
-set "REMOTE_WORKDIR=/home/project"
-set "REMOTE_PASSWORD=mypassword"
-```
-
-**sudo 命令：**
-
-```bat
-set "REMOTE_SSH=ssh user@host"
-set "REMOTE_WORKDIR=/app"
-set "REMOTE_PASSWORD=mypassword"
-set "REMOTE_SUDO_PASSWORD=mysudopass"
-```
-
-AI 随后可以在 `bash` 命令中自然地使用 `sudo`，不会遇到交互式密码提示。
 
 ---
 
@@ -216,8 +215,8 @@ AI 看到:     /home/project/src/main.ts
 
 插件使用 `ssh2` 库维护连接池：
 
-- **命令池**（5 个连接）：用于 `bash`、`glob`、`grep` 执行
-- **文件池**（3 个连接）：用于 SFTP 文件传输
+- **命令池**（默认 3 个连接）：用于 `bash`、`glob`、`grep` 执行
+- **文件池**（默认 2 个连接）：用于 SFTP 文件传输
 
 不需要外部 `ssh`、`sshpass` 或 `rsync` 可执行文件。
 

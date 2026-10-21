@@ -14,7 +14,7 @@ export interface RemoteConfig {
   identity?: string
   /** Extra SSH -o options */
   extraOptions: string[]
-  /** SSH login password (optional, uses sshpass) */
+  /** SSH login password (optional, handled by ssh2) */
   password?: string
   /** Sudo password for remote commands (optional) */
   sudoPassword?: string
@@ -26,35 +26,52 @@ export interface RemoteConfig {
   active: boolean
 }
 
-function parseArgv(): Record<string, string | undefined> {
-  const args: Record<string, string | undefined> = {}
-  const argv = process.argv
-  for (let i = 2; i < argv.length; i++) {
-    const arg = argv[i]
-    if (arg.startsWith("--")) {
-      const key = arg
-      const next = argv[i + 1]
-      if (next && !next.startsWith("-")) {
-        args[key] = next
-        i++
-      } else {
-        args[key] = "true"
-      }
+/** Tokenize a command as data; never execute it through a local shell. */
+export function splitSshCommand(command: string): string[] {
+  const tokens: string[] = []
+  let token = ""
+  let quote = ""
+  for (let i = 0; i < command.length; i++) {
+    const ch = command[i]
+    if (ch === "\\" && quote !== "'" && (command[i + 1] === '"' || (!quote && command[i + 1] === "'") || (quote === '"' && command[i + 1] === "\\") || (!quote && /\s/.test(command[i + 1] || "")))) {
+      token += command[++i]
+    } else if (quote) {
+      if (ch === quote) quote = ""
+      else token += ch
+    } else if (ch === '"' || ch === "'") {
+      quote = ch
+    } else if (/\s/.test(ch)) {
+      if (token) tokens.push(token)
+      token = ""
+    } else {
+      token += ch
     }
   }
-  return args
+  if (quote) throw new Error("Remote Code: unclosed quote in REMOTE_SSH")
+  if (token) tokens.push(token)
+  return tokens
 }
 
-function parseSshCommand(cmd: string): {
+/** Saved key paths must remain valid when the launcher is run from another directory. */
+export function normalizeSshCommand(command: string): string {
+  const tokens = splitSshCommand(command)
+  const parsed = parseSshCommand(command)
+  const index = tokens.lastIndexOf("-i")
+  if (index < 0 || tokens[index + 1] === parsed.identity) return command.trim()
+  tokens[index + 1] = parsed.identity!
+  return tokens.map(token => /[\s\\"']/.test(token) ? JSON.stringify(token) : token).join(" ")
+}
+
+export function parseSshCommand(cmd: string): {
   host: string
   user: string
   port: number
   identity?: string
   extraOptions: string[]
 } {
-  const tokens = cmd.trim().split(/\s+/)
+  const tokens = splitSshCommand(cmd)
   if (tokens.length === 0 || tokens[0] !== "ssh") {
-    throw new Error(`Remote Code: --remote must start with "ssh", got: ${cmd}`)
+    throw new Error(`Remote Code: REMOTE_SSH must start with "ssh", got: ${cmd}`)
   }
 
   let host = ""
@@ -66,21 +83,32 @@ function parseSshCommand(cmd: string): {
   for (let i = 1; i < tokens.length; i++) {
     const tok = tokens[i]
     if (tok === "-p" || tok === "--port") {
-      port = parseInt(tokens[++i], 10)
-      if (isNaN(port)) throw new Error(`Remote Code: invalid port in --remote`)
+      const value = tokens[++i]
+      port = Number(value)
+      if (!/^\d+$/.test(value || "") || !Number.isInteger(port) || port < 1 || port > 65535) {
+        throw new Error("Remote Code: SSH port must be between 1 and 65535")
+      }
     } else if (tok === "-i") {
       identity = tokens[++i]
+      if (!identity || identity.startsWith("-")) throw new Error("Remote Code: -i requires a key path")
+      if (identity.startsWith("~/")) identity = path.join(os.homedir(), identity.slice(2))
+      identity = path.resolve(identity)
+    } else if (tok === "-l") {
+      user = tokens[++i]
+      if (!user || user.startsWith("-")) throw new Error("Remote Code: -l requires a username")
     } else if (tok.startsWith("-o")) {
       // Handle both `-oKey=Value` and `-o Key=Value`
       if (tok === "-o") {
-        extraOptions.push("-o", tokens[++i])
+        const option = tokens[++i]
+        if (!option || option.startsWith("-")) throw new Error("Remote Code: -o requires an option")
+        extraOptions.push("-o", option)
       } else {
         extraOptions.push("-o", tok.slice(2))
       }
     } else if (tok.startsWith("-")) {
       // Other flags we don't explicitly parse; if they take args, skip next token heuristically
       // This is best-effort; users with exotic flags should rely on -o
-      if (i + 1 < tokens.length && !tokens[i + 1].startsWith("-")) {
+      if (!["-v", "-vv", "-vvv", "-4", "-6", "-A", "-a", "-T", "-t", "-C", "-q"].includes(tok) && i + 1 < tokens.length && !tokens[i + 1].startsWith("-")) {
         i++
       }
     } else if (tok.includes("@")) {
@@ -93,7 +121,7 @@ function parseSshCommand(cmd: string): {
   }
 
   if (!host) {
-    throw new Error(`Remote Code: could not parse host from --remote: ${cmd}`)
+    throw new Error(`Remote Code: could not parse host from REMOTE_SSH: ${cmd}`)
   }
   if (!user) {
     user = "root"
@@ -102,58 +130,19 @@ function parseSshCommand(cmd: string): {
   return { host, user, port, identity, extraOptions }
 }
 
-export function loadConfig(options?: Record<string, unknown>): RemoteConfig | null {
-  const args = parseArgv()
-
-  // Remote mode activation: MUST come from CLI args or env vars.
-  // Plugin options alone do NOT activate remote mode.
-  const hasCliRemote = Boolean(args["--remote"] || args["--remote-ssh"])
-  const hasEnvRemote = Boolean(process.env.REMOTE_SSH)
-
-  if (!hasCliRemote && !hasEnvRemote) {
-    return null
-  }
-
-  // Priority: CLI args > env vars > plugin options (fallback only)
-  const opt = (key: string): string | undefined => {
-    const legacyKey = key === "ssh" ? "--remote" : `--remote-${key}`
-    const cliKey = `--remote-${key}`
-    if (args[legacyKey]) return args[legacyKey]
-    if (args[cliKey]) return args[cliKey]
-    const envKey = key === "ssh" ? "REMOTE_SSH" : `REMOTE_${key.toUpperCase()}`
-    const envValue = process.env[envKey]
-    if (envValue) return envValue
-    // Fallback to plugin options for supplementary config only
-    if (options && typeof options[key] === "string") return options[key] as string
-    return undefined
-  }
-
-  const sshCommand = opt("ssh")
-  if (!sshCommand) {
-    return null
-  }
-
-  const remoteWorkdir = opt("workdir")
-  if (!remoteWorkdir) {
-    throw new Error(
-      `Remote Code: remote SSH is configured but remote-workdir is missing. Provide it via --remote-workdir, plugin options, or REMOTE_WORKDIR env var.`
-    )
-  }
-
-  const parsed = parseSshCommand(sshCommand)
-  const mirrorRoot =
-    opt("mirror") ?? path.join(os.homedir(), ".opencode", "mirrors")
-
-  const password = opt("password")
-  const sudoPassword = opt("sudo-password")
-
+export function loadConfig(_options?: Record<string, unknown>): RemoteConfig | null {
+  // OpenCode's CLI does not accept --remote flags. Launchers pass only environment variables.
+  const sshCommand = process.env.REMOTE_SSH
+  if (!sshCommand) return null
+  const remoteWorkdir = process.env.REMOTE_WORKDIR
+  if (!remoteWorkdir) throw new Error("Remote Code: REMOTE_WORKDIR is required")
   return {
     sshCommand,
-    ...parsed,
-    password,
-    sudoPassword,
+    ...parseSshCommand(sshCommand),
+    password: process.env.REMOTE_PASSWORD || undefined,
+    sudoPassword: process.env.REMOTE_SUDO_PASSWORD || undefined,
     remoteWorkdir,
-    mirrorRoot,
+    mirrorRoot: process.env.REMOTE_MIRROR || path.join(os.homedir(), ".opencode", "mirrors"),
     active: true,
   }
 }

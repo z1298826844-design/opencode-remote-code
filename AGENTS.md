@@ -36,7 +36,7 @@ To fix this, Remote Code implements **two complementary strategies**:
 
 #### Strategy A: Launcher Scripts (always works)
 
-Use the provided launcher scripts to always start OpenCode from a **stable local directory** derived from your remote target:
+Use `opencode-remote` (registered by `npm run setup`) to start OpenCode from a **stable local directory** derived from your remote target. The legacy wrappers below use the same CLI:
 
 ```bash
 # Linux / macOS
@@ -215,39 +215,31 @@ No external `ssh`, `sshpass`, or `rsync` binaries are required. Password authent
 - [Bun](https://bun.sh) or Node.js >= 20
 - OpenCode >= 1.15.0
 
-### Build
+### Install and launch
 
 ```bash
-bun install
-bun run build
+npm run setup      # install dependencies, build, register plugin, and npm link the global command
+opencode-remote    # run from any directory; first run guides connection setup
 ```
 
-### Install
+Keep the source checkout: npm link and the plugin loader point to it. After an update or move, rerun setup. The installer writes a managed JavaScript entry to the OpenCode plugins directory and leaves existing JSON/JSONC configuration intact.
+
+The cross-platform CLI lives in `src/cli/` with its npm bin entry in `bin/opencode-remote.cjs`. Existing scripts in `launchers/` are compatibility wrappers. Do not add connection details or passwords to those scripts.
+
+Configuration commands: `config`, `config show`, `config set <key> <value>`, `config unset <key>`, `config forget-password`, and `config reset`. `doctor` checks installation and performs a read-only SSH directory probe. Arguments after `--` are forwarded to OpenCode.
+
+Non-secret settings are stored under `XDG_CONFIG_HOME/opencode-remote/config.json` (default `~/.config/`). Passwords are optional entries in the OS credential store, accessed through `@napi-rs/keyring`; never store passwords in JSON or command arguments. Credential indexes bind secrets to parsed host/user/port. A failed deletion must keep its index so it can be retried. Missing credential services must permit prompting for the current connection without a plaintext fallback.
+
+The launcher applies environment variables over saved settings and passes the resulting configuration to the plugin through `REMOTE_*` variables. `REMOTE_AUTH` and `REMOTE_SUDO` control launcher prompts. The plugin reads `REMOTE_SUDO_PASSWORD` with underscores. Relative key paths are normalized before the launcher changes directory.
 
 ```bash
-# OpenCode plugins directory
-cp -r dist/ ~/.config/opencode/plugins/remote-code
+npm run lint
+npm run test:cli   # no external SSH target; includes an in-process SSH server
 ```
 
-### Usage with Launcher
+### Develop and remove
 
-1. Copy `launchers/remote-opencode.sh` (or `.ps1`) to a location in your `$PATH`.
-2. Edit the "User Configuration" block inside the launcher with your `REMOTE_SSH`, `REMOTE_WORKDIR`, and `REMOTE_PASSWORD`.
-3. Run the launcher instead of `opencode` directly.
-
----
-
-## Build & Install (Legacy)
-
-
-```bash
-# Local development
-bun install
-bun run build
-
-# Install as OpenCode plugin
-cp -r dist/ ~/.config/opencode/plugins/remote-code
-```
+`npm run build` runs TypeScript and postbuild processing. After building during development, rerun setup when the install path changes. To remove registration, run `npm run unregister` from the checkout, followed by `npm uninstall -g opencode-remote-code`. Optionally run `opencode-remote config reset` first to clear credentials and settings; it preserves session history.
 
 ## Testing
 

@@ -8,6 +8,129 @@ The AI sees nothing different: it still calls `bash`, `edit`, `write`, `read`, `
 
 ---
 
+## 🚀 Install and connect
+
+Install **Node.js 20+ (with npm)**, **Git**, and the **OpenCode CLI** locally. Check that `opencode --version` works. The remote machine only needs an SSH daemon; local `sshpass` and `rsync` are not required.
+
+```bash
+git clone https://github.com/zz6zz666/opencode-remote-code.git
+cd opencode-remote-code
+npm run setup
+```
+
+Setup installs dependencies, builds the plugin, registers it with OpenCode, and registers the global command. It finishes with next-step instructions, including how to add npm's global command directory to `PATH` if necessary.
+
+**Then, from any directory:**
+
+```bash
+opencode-remote
+```
+
+The first-run wizard asks for the SSH command, remote absolute directory, authentication method (password or key), and whether sudo needs a password. Passwords are entered with hidden input, with a separate choice to remember each one. **SSH login and sudo passwords are independent**: password login works without enabling sudo.
+
+Later launches reuse your connection settings. Remembered passwords are retrieved automatically; otherwise the launcher prompts each time. Key authentication uses `-i` or an agent referenced by `SSH_AUTH_SOCK`. Load passphrase-protected keys into your SSH agent first.
+
+```text
+ssh -p 2222 user@host
+ssh -i /absolute/path/id_rsa user@host
+ssh -i "C:\Users\me\My Keys\id_rsa" user@host
+```
+
+The install and launch commands are the same on Linux, macOS, and Windows. Setup uses `npm link`, so **keep the source directory**. Rerun `npm run setup` after moving it. The existing `launchers/remote-opencode.sh`, `.ps1`, and `.bat` scripts remain compatibility wrappers for the same CLI. Terminal prompts currently use Chinese; command names and configuration keys are shown below.
+
+## ⚙️ Change configuration
+
+Use the interactive editor; press Enter to keep a current value:
+
+```bash
+opencode-remote config
+```
+
+Or update individual settings:
+
+```bash
+opencode-remote config set ssh "ssh -p 2222 user@new-host"
+opencode-remote config set workdir /home/project
+opencode-remote config set auth key
+opencode-remote config set sudo true
+```
+
+| Command | Purpose |
+| :--- | :--- |
+| `opencode-remote config show` | Show settings and their sources, without revealing passwords |
+| `opencode-remote config unset <key>` | Remove a saved value; use its default or prompt next time |
+| `opencode-remote config forget-password` | Delete remembered passwords for all tracked targets |
+| `opencode-remote config reset` | Confirm, then clear settings and passwords; keep session history |
+| `opencode-remote doctor` | Check OpenCode, plugin registration, SSH authentication, and remote directory access; never run sudo |
+| `opencode-remote --help` | Show usage and examples |
+| `opencode-remote --version` | Show the version |
+
+Settings live in `~/.config/opencode-remote/config.json`, or under `XDG_CONFIG_HOME` when set. Environment variables override saved settings; `config show` identifies the source. Clearing saved settings does not unset variables in your shell.
+
+**Remembered passwords** use the OS credential store: macOS Keychain, Windows Credential Manager, or Linux Secret Service (such as GNOME Keyring/KWallet). Linux needs an available, unlocked credential service. If unavailable, the launcher explains the failure and lets you connect with the entered password; it never falls back to plaintext storage. Credentials are bound to the remote host, username, and port, so switching targets does not reuse another target's password.
+
+Run `opencode-remote config` to replace a remembered password or stop remembering it. `config forget-password` clears all tracked passwords. Failed deletions retain their indexes and report an error; unlock the credential service and retry.
+
+<details>
+<summary>Advanced configuration and automation</summary>
+
+| Setting | Environment variable | Default |
+| :--- | :--- | :--- |
+| `ssh` | `REMOTE_SSH` | Required; SSH command string |
+| `workdir` | `REMOTE_WORKDIR` | Required; remote absolute path |
+| `auth` | `REMOTE_AUTH` | `password`; inferred as `key` when unset and SSH includes `-i` |
+| `sudo` | `REMOTE_SUDO` | `false` |
+| `mirror` | `REMOTE_MIRROR` | `~/.opencode/mirrors/` |
+| `pool-command-size` | `REMOTE_POOL_COMMAND_SIZE` | `3` |
+| `pool-file-size` | `REMOTE_POOL_FILE_SIZE` | `2` |
+| `pool-stagger-ms` | `REMOTE_POOL_STAGGER_MS` | `0` milliseconds |
+
+Supply passwords through `REMOTE_PASSWORD` and `REMOTE_SUDO_PASSWORD` for automation; these are never automatically remembered. Providing `REMOTE_SUDO_PASSWORD` enables the sudo-password configuration unless `REMOTE_SUDO` is explicitly set. Unattended launches need all required settings and credentials in advance; missing interactive input produces an immediate error.
+
+```bash
+opencode-remote config set pool-command-size 2
+opencode-remote config set pool-stagger-ms 200
+```
+
+Pass OpenCode arguments after `--`:
+
+```bash
+opencode-remote -- --continue
+opencode-remote -- run "Inspect the remote project"
+```
+
+Launchers enter a stable directory at `~/.opencode/remote-sessions/<host>_<workdir_slug>/`, so session history stays accessible regardless of the invocation directory. Existing session paths for ordinary host/path combinations are preserved.
+
+The plugin is activated only through environment variables. With `REMOTE_SSH` unset, launching plain `opencode` keeps local mode.
+
+</details>
+
+## 🔧 Update, troubleshoot, and uninstall
+
+Update from the source directory:
+
+```bash
+git pull
+npm run setup
+```
+
+Start troubleshooting with `opencode-remote doctor`. If the command is missing, follow setup's instructions to add npm's global command directory to `PATH` and reopen the terminal. You can also run `npm run remote` from the source directory. For connection failures, use `opencode-remote config` to check SSH, authentication, and the remote path. SSH strings are parsed as connection data, supporting common `-p`, `-i`, `-l`, and existing `-o` algorithm settings. They do not execute a local shell or implement the full OpenSSH configuration/options system.
+
+Optionally clear saved configuration and credentials before uninstalling, then remove the plugin loader and global command:
+
+```bash
+opencode-remote config reset
+# From the source directory:
+npm run unregister
+npm uninstall -g opencode-remote-code
+```
+
+Reset asks for confirmation and preserves session history. Skip the first command to keep settings. If you use `OPENCODE_CONFIG_DIR`, keep it consistent during setup, launch, and removal. Registration uses a separate plugin entry file and leaves `opencode.json` intact. When migrating from an older manual installation, remove duplicate plugin entries you previously added.
+
+Development checks: `npm run lint` and `npm run test:cli`. CLI tests do not need an external SSH server; the existing live SSH suites still use `.env.test`.
+
+---
+
 ## 💡 Why Remote Code?
 
 I am an analog IC engineer. My daily work relies on the **Cadence IC6.1.7 design suite**, which runs on an aging **CentOS 6 VM**. The glibc version on CentOS 6 is too old to install any modern agent tools — Node.js, Python 3.11+, and most modern CLI tools simply won't run.
@@ -51,141 +174,6 @@ different workflows:
 
 ---
 
-## 📋 Prerequisites
-
-- **OpenCode** (latest version)
-- **SSH daemon** on the remote machine (the *only* remote requirement)
-
-> **Note**:  This plugin uses the pure-Node.js `ssh2` library internally. You **do not** need to install `ssh`, `sshpass`, or `rsync` locally.
-
----
-
-## 🚀 Installation
-
-This plugin has external dependencies and requires a build step, so it **must** be installed from source.
-
-```bash
-# 1. Download or clone
-git clone https://github.com/zz6zz666/opencode-remote-code.git
-
-# 2. Install dependencies and build
-cd opencode-remote-code
-npm install
-npm run build
-```
-
-After building, choose one of the following:
-
-### Option A: Copy to OpenCode plugin directory (recommended)
-
-Copy the built plugin into OpenCode's plugin directory so you can delete the original download:
-
-```bash
-# Linux/macOS:
-cp -r . ~/.config/opencode/plugins/remote-code
-
-# Windows (PowerShell):
-Copy-Item -Recurse -Force . $env:USERPROFILE\.config\opencode\plugins\remote-code
-```
-
-> OpenCode loads local plugins from `~/.config/opencode/plugins/` (global) or `.opencode/plugins/` (project-level). The directory must contain `package.json` and the built `dist/` folder.
-
-### Option B: Reference the source directly (for development)
-
-Keep the plugin in place and point OpenCode at it:
-
-```json
-{
-  "plugin": ["/absolute/path/to/opencode-remote-code"]
-}
-```
-
-Use `npm run dev` for watch-mode builds during development.
-
----
-
-## 🎯 Usage
-
-Remote mode is activated **exclusively via environment variables**. OpenCode's CLI does not recognize `--remote*` flags, and plugin options in `opencode.json` are unreliable due to internal caching.
-
-### Launcher scripts
-
-The `launchers/` directory contains ready-made launcher scripts for all major platforms. **We strongly recommend using them** because they solve a session persistence problem: OpenCode binds sessions to the current working directory, so if you launch it from different local folders, your remote sessions appear to "disappear." The launchers automatically derive a stable local session directory from your remote target, ensuring sessions persist no matter where you invoke the script from.
-
-1. Copy the appropriate launcher for your platform to a location in your `$PATH` (or keep it anywhere convenient):
-
-   ```bash
-   # Linux / macOS
-   cp launchers/remote-opencode.sh ~/bin/remote-opencode
-   chmod +x ~/bin/remote-opencode
-
-   # Windows PowerShell
-   Copy-Item launchers\remote-opencode.ps1 $env:USERPROFILE\bin\remote-opencode.ps1
-
-   # Windows CMD
-   copy launchers\remote-opencode.bat %USERPROFILE%\bin\remote-opencode.bat
-   ```
-
-2. Edit the **"User Configuration"** block inside the launcher with your `REMOTE_SSH`, `REMOTE_WORKDIR`, and optional credentials.
-
-3. Run the launcher instead of `opencode` directly:
-
-   ```bash
-   remote-opencode
-   ```
-
-The launcher will:
-- Automatically create and `cd` into a stable local session directory (e.g. `~/.opencode/remote-sessions/host_home_project/`)
-- Export the required environment variables
-- Launch OpenCode from that stable directory
-
-You can also uncomment the optional **SSH connection pool tuning** variables in the launcher if you need to adjust concurrency for legacy SSH servers.
-
-### Configuration options
-
-| Environment Variable       | Description                                                             | Default                  |
-| :------------------------- | :---------------------------------------------------------------------- | :----------------------- |
-| `REMOTE_SSH`             | Full SSH connection string (exactly as you would type in your terminal) | *(required)*           |
-| `REMOTE_WORKDIR`         | Remote working directory (absolute path)                                | *(required)*           |
-| `REMOTE_MIRROR`          | Local mirror root directory                                             | `~/.opencode/mirrors/` |
-| `REMOTE_PASSWORD`        | SSH login password                                                      | *(optional)*           |
-| `REMOTE_SUDO_PASSWORD`   | Sudo password for remote commands                                       | *(optional)*           |
-| `REMOTE_POOL_COMMAND_SIZE` | SSH exec connection pool size (`bash`/`glob`/`grep`)                  | `3`                    |
-| `REMOTE_POOL_FILE_SIZE`  | SFTP connection pool size (`read`/`write`/`edit`/`patch`)             | `2`                    |
-| `REMOTE_POOL_STAGGER_MS` | Delay between sequential SSH handshakes (ms) for legacy servers       | `0`                    |
-
-If `REMOTE_SSH` is not set, the plugin stays dormant and OpenCode runs normally in local mode.
-
-### Authentication examples
-
-**Key-based auth (recommended):**
-
-```bat
-set "REMOTE_SSH=ssh -i C:\Users\me\.ssh\id_rsa user@host"
-set "REMOTE_WORKDIR=/home/project"
-```
-
-**Password auth:**
-
-```bat
-set "REMOTE_SSH=ssh user@host"
-set "REMOTE_WORKDIR=/home/project"
-set "REMOTE_PASSWORD=mypassword"
-```
-
-**Sudo commands:**
-
-```bat
-set "REMOTE_SSH=ssh user@host"
-set "REMOTE_WORKDIR=/app"
-set "REMOTE_PASSWORD=mypassword"
-set "REMOTE_SUDO_PASSWORD=mysudopass"
-```
-
-The AI can then use `sudo` naturally in `bash` commands without interactive prompts.
-
----
-
 ## ⚙️ How It Works
 
 ### 1. Local Mirror
@@ -224,8 +212,8 @@ Command tools (`bash`, `glob`, `grep`) run directly on the remote via SSH.
 
 The plugin uses the `ssh2` library to maintain connection pools:
 
-- **Command pool** (5 connections): for `bash`, `glob`, `grep` execution
-- **File pool** (3 connections): for SFTP file transfers
+- **Command pool** (3 connections by default): for `bash`, `glob`, `grep` execution
+- **File pool** (2 connections by default): for SFTP file transfers
 
 No external `ssh`, `sshpass`, or `rsync` binaries are required.
 

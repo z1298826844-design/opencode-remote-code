@@ -5,6 +5,12 @@
   "type": "module",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
+  "bin": {
+    "opencode-remote": "bin/opencode-remote.cjs"
+  },
+  "engines": {
+    "node": ">=20"
+  },
   "exports": {
     "./server": {
       "import": "./dist/index.js",
@@ -12,9 +18,16 @@
     }
   },
   "files": [
-    "dist"
+    "dist",
+    "bin",
+    "scripts/setup.cjs",
+    "launchers"
   ],
   "scripts": {
+    "setup": "node scripts/setup.cjs",
+    "remote": "node bin/opencode-remote.cjs",
+    "unregister": "node scripts/setup.cjs --unregister",
+    "test:cli": "npm run build && node --test tests/cli.test.mjs",
     "build": "tsc",
     "postbuild": "node scripts/postbuild.cjs",
     "dev": "tsc --watch",
@@ -24,14 +37,19 @@
     "@opencode-ai/plugin": ">=1.15.0"
   },
   "dependencies": {
+    "cross-spawn": "^7.0.6",
     "diff": "^9.0.0",
-    "ssh2": "^1.17.0"
+    "ssh2": "^1.17.0",
+    "zod": "^3.22.0"
+  },
+  "optionalDependencies": {
+    "@napi-rs/keyring": "^2.1.2"
   },
   "devDependencies": {
+    "@types/cross-spawn": "^6.0.6",
     "@types/node": "^20.0.0",
     "@types/ssh2": "^1.15.5",
-    "typescript": "^5.4.0",
-    "zod": "^3.22.0"
+    "typescript": "^5.4.0"
   },
   "repository": {
     "type": "git",

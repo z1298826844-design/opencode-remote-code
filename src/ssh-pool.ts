@@ -82,6 +82,8 @@ class ConnectionPool {
         connConfig.privateKey = readFileSync(this.config.identity)
       } else if (this.config.password) {
         connConfig.password = this.config.password
+      } else if (process.env.SSH_AUTH_SOCK) {
+        connConfig.agent = process.env.SSH_AUTH_SOCK
       }
 
       client
@@ -457,7 +459,7 @@ import { quoteShell } from "./shell-quote.js"
  * Build ssh2 algorithms config from OpenSSH -o options.
  * CentOS 6 and other legacy systems need ssh-rsa (SHA-1) enabled.
  */
-function buildAlgorithms(extraOptions: string[]): any {
+export function buildAlgorithms(extraOptions: string[]): any {
   const serverHostKey = [
     "ssh-ed25519",
     "ecdsa-sha2-nistp256",
