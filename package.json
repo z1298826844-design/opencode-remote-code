@@ -48,8 +48,5 @@
     "ssh",
     "remote",
     "agent"
-  ],
-  "dependencies": {
-    "ssh2": "^1.17.0"
-  }
+  ]
 }
