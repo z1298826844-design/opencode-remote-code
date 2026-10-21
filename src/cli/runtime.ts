@@ -20,8 +20,8 @@ export function checkInstallation(): string {
 
 export function checkAuthentication(values: Values, env = process.env) {
   const parsed = parseSshCommand(String(values.ssh))
-  if (values.auth === "password" && parsed.identity) throw new Error("SSH 命令含 -i 密钥选项。请移除 -i，或运行 opencode-remote config set auth key。")
-  if (values.auth === "key" && !parsed.identity && !env.SSH_AUTH_SOCK) throw new Error("密钥认证需要在 SSH 命令中用 -i 指定密钥，或设置 SSH_AUTH_SOCK 使用 SSH agent。请运行 opencode-remote config。")
+  if (values.auth === "password" && parsed.identity) throw new Error("当前密码登录配置仍包含密钥。请运行 opencode-remote config 重新选择认证方式。")
+  if (values.auth === "key" && !parsed.identity && !env.SSH_AUTH_SOCK) throw new Error("尚未配置私钥或 SSH agent。请运行 opencode-remote config，选择密钥登录并填写私钥路径。")
   if (parsed.identity && !fs.existsSync(parsed.identity)) throw new Error(`密钥文件不存在：${parsed.identity}`)
 }
 

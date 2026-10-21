@@ -34,7 +34,7 @@ function fixture(name, answers = [], store = new MemoryCredentials(), env = {}) 
   const queue = [...answers]
   const prompt = {
     async text(label, defaultValue, secret) {
-      prompts.push({ label, secret })
+      prompts.push({ label, defaultValue, secret })
       assert(queue.length, `Unexpected prompt: ${label}`)
       return queue.shift() || defaultValue || ''
     },
@@ -49,11 +49,13 @@ function fixture(name, answers = [], store = new MemoryCredentials(), env = {}) 
 }
 
 test('password login works without sudo, saves no plaintext, and reuses remembered credentials', async () => {
-  const f = fixture('remember', ['ssh user@host', '/home/project', '1', false, 'ssh-secret', true])
+  const f = fixture('remember', ['host', '', 'user', '', 'ssh-secret', true, '/home/project', false])
   await f.cli.configure()
   assert(f.prompts.find(p => p.label.startsWith('SSH 登录密码')).secret)
   const persisted = fs.readFileSync(f.file, 'utf8')
   assert(!persisted.includes('ssh-secret'))
+  assert.deepEqual(parseSshCommand(loadState(f.file).values.ssh), { host: 'host', port: 22, user: 'user', identity: undefined, extraOptions: [] })
+  assert.equal(f.prompts.find(p => p.label === 'SSH 端口').defaultValue, '22')
   const next = new RemoteCLI(f.file, { text() { throw Error('must not prompt') } }, f.store, {}, () => {})
   const result = await next.connection()
   assert.equal(result.env.REMOTE_PASSWORD, 'ssh-secret')
@@ -62,21 +64,27 @@ test('password login works without sudo, saves no plaintext, and reuses remember
 })
 
 test('wizard explains each step and retries empty required input with an example', async () => {
-  const f = fixture('guidance', ['', 'ssh user@host', '/work', '1', false, 'login', false])
+  const f = fixture('guidance', ['', 'ssh user@host', '192.168.1.10', '0', '65536', '22x', '2222', '', 'user@host', 'alice', '3', '1', 'login', false, 'relative', '/work', false])
   await f.cli.configure()
   const output = f.output.join('\n')
   for (const step of ['[1/4]', '[2/4]', '[3/4]', '[4/4]']) assert(output.includes(step))
-  assert(output.includes('ssh alice@192.168.1.10'))
-  assert(output.includes('还没有填写SSH 连接命令'))
+  assert(output.includes('192.168.1.10'))
+  assert(output.includes('还没有填写服务器 IP / 主机名'))
+  assert(output.includes('请只填写 IP 或主机名'))
+  assert(output.includes('1 到 65535'))
+  assert(output.includes('请输入 1（密码登录）或 2（SSH 密钥）'))
   assert(output.includes('输入时不会显示字符或星号'))
-  assert(!output.includes('ssh 不能为空'))
-  assert.equal(f.prompts.filter(p => p.label === 'SSH 连接命令（必填）').length, 2)
+  assert(!f.prompts.some(p => p.label.includes('SSH 连接命令')))
+  assert.equal(f.prompts.filter(p => p.label === '服务器 IP / 主机名（必填）').length, 3)
+  const parsed = parseSshCommand(loadState(f.file).values.ssh)
+  assert.equal(parsed.port, 2222)
+  assert.equal(parsed.user, 'alice')
   assert(output.includes('登录方式：SSH 密码'))
   assert(output.includes('sudo 密码：不需要'))
 })
 
 test('unremembered passwords prompt on next launch; sudo credentials are independent', async () => {
-  const f = fixture('prompt', ['ssh user@host', '/work', '1', true, 'login', false, 'sudo-other', false])
+  const f = fixture('prompt', ['host', '', 'user', '1', 'login', false, '/work', true, 'sudo-other', false])
   await f.cli.configure()
   assert.equal(f.store.values.size, 0)
   const next = fixture('prompt', ['new-login', 'new-sudo'])
@@ -84,6 +92,73 @@ test('unremembered passwords prompt on next launch; sudo credentials are indepen
   assert.equal(result.env.REMOTE_PASSWORD, 'new-login')
   assert.equal(result.env.REMOTE_SUDO_PASSWORD, 'new-sudo')
   assert.equal(next.prompts.length, 2)
+})
+
+test('wizard pre-fills existing connection fields and retains advanced SSH options when editing', async () => {
+  const f = fixture('edit-connection', ['', '', '', '', 'login', false, '', false])
+  f.cli.state.values = { ssh: 'ssh -v -oHostKeyAlgorithms=+ssh-rsa -o "Ciphers=aes128-ctr,aes256-ctr" -J jump -p 2222 -l alice server', auth: 'password', workdir: '/saved' }
+  await f.cli.configure()
+  assert.deepEqual(f.prompts.slice(0, 3).map(p => p.defaultValue), ['server', '2222', 'alice'])
+  const { values } = loadState(f.file)
+  assert.equal(values.workdir, '/saved')
+  assert(values.ssh.includes('-v'))
+  assert(values.ssh.includes('-J jump'))
+  assert.deepEqual(parseSshCommand(values.ssh), {
+    host: 'server', port: 2222, user: 'alice', identity: undefined,
+    extraOptions: ['-o', 'HostKeyAlgorithms=+ssh-rsa', '-o', 'Ciphers=aes128-ctr,aes256-ctr'],
+  })
+  const edited = fixture('edit-connection', ['new-host', '2200', 'bob', '', 'new-login', false, '', false])
+  await edited.cli.configure()
+  assert.deepEqual(parseSshCommand(loadState(f.file).values.ssh), {
+    host: 'new-host', port: 2200, user: 'bob', identity: undefined,
+    extraOptions: parseSshCommand(values.ssh).extraOptions,
+  })
+})
+
+test('key wizard accepts a separate local path with spaces and retries missing or public key files', async () => {
+  const key = path.join(temporary, 'my private key')
+  fs.writeFileSync(key, 'synthetic-key-file')
+  const f = fixture('key-wizard', ['[2001:db8::1]', '', 'alice', '2', 'agent', `${key}.missing`, `${key}.pub`, temporary, key, '/work', false])
+  await f.cli.configure()
+  const parsed = parseSshCommand(loadState(f.file).values.ssh)
+  assert.equal(parsed.host, '2001:db8::1')
+  assert.equal(parsed.identity, key)
+  assert(f.output.join('\n').includes('这是公钥文件'))
+  assert(f.output.join('\n').includes('找不到可读取的私钥文件'))
+  assert(f.output.join('\n').includes('当前终端没有 SSH agent'))
+  assert(!f.prompts.some(p => p.secret))
+  const next = fixture('key-wizard')
+  assert.equal((await next.cli.connection()).env.REMOTE_PASSWORD, undefined)
+  assert.equal(next.prompts.length, 0)
+})
+
+test('switching from key to password login removes the old identity and retains connection defaults', async () => {
+  const f = fixture('key-to-password', ['', '', '', '1', 'login', false, '', false])
+  f.cli.state.values = { ssh: 'ssh -i /old/private-key -p 2222 user@host', workdir: '/work', auth: 'key' }
+  await f.cli.configure()
+  assert.equal(f.prompts.find(p => p.label.startsWith('认证方式')).defaultValue, '2')
+  assert(f.output.join('\n').includes('2. SSH 密钥（默认）'))
+  assert.equal(parseSshCommand(loadState(f.file).values.ssh).identity, undefined)
+  assert.equal((await f.cli.connection()).env.REMOTE_PASSWORD, 'login')
+})
+
+test('key wizard supports SSH agent without a private key path or login password', async () => {
+  const f = fixture('agent-wizard', ['host', '', 'user', '2', 'agent', '/work', false], undefined, { SSH_AUTH_SOCK: '/test-agent' })
+  await f.cli.configure()
+  assert.equal(loadState(f.file).values.auth, 'key')
+  assert.equal(parseSshCommand(loadState(f.file).values.ssh).identity, undefined)
+  assert.equal((await f.cli.connection()).env.REMOTE_PASSWORD, undefined)
+  assert(!f.prompts.some(p => p.secret))
+})
+
+test('cancelling a changed connection keeps previous connection values on disk', async () => {
+  const f = fixture('cancel-edit', ['new-host', '', 'new-user', '1', 'login', false])
+  const saved = { ssh: 'ssh old-user@old-host', workdir: '/old', auth: 'password' }
+  f.cli.state.values = saved
+  f.cli.persist()
+  // No workdir answer is supplied, simulating termination before completing the wizard.
+  await assert.rejects(f.cli.configure(), /Unexpected prompt/)
+  assert.deepEqual(loadState(f.file).values, saved)
 })
 
 test('changing host, account, or port cannot retrieve another target password', async () => {

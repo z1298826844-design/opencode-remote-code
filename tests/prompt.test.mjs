@@ -29,25 +29,25 @@ function latestPaint(transcript) {
 
 test('required prompt survives initial readline erase and subsequent editing', async () => {
   const { prompt, input, transcript } = terminal()
-  const pending = prompt.text('SSH 连接命令（必填）')
-  assert(latestPaint(transcript()).includes('SSH 连接命令（必填）： '))
-  input.write('ssh test@hosx')
+  const pending = prompt.text('服务器 IP / 主机名（必填）')
+  assert(latestPaint(transcript()).includes('服务器 IP / 主机名（必填）： '))
+  input.write('hosx')
   input.write('\x7f') // backspace forces another repaint
   input.write('t')
-  assert(latestPaint(transcript()).includes('SSH 连接命令（必填）'))
+  assert(latestPaint(transcript()).includes('服务器 IP / 主机名（必填）'))
   input.write('\r')
-  assert.equal(await pending, 'ssh test@host')
+  assert.equal(await pending, 'host')
   assert.equal(input.isRaw, false)
 })
 
 test('default value and Enter behavior are visible, including on a narrow terminal', async () => {
   const { prompt, input, transcript } = terminal(24)
-  const pending = prompt.text('远程工作目录', '/home/alice/project')
+  const pending = prompt.text('SSH 端口', '22')
   const paint = latestPaint(transcript())
-  assert(paint.includes('远程工作目录'))
-  assert(paint.includes('回车使用：/home/alice/project'))
+  assert(paint.includes('SSH 端口'))
+  assert(paint.includes('回车使用：22'))
   input.write('\r')
-  assert.equal(await pending, '/home/alice/project')
+  assert.equal(await pending, '22')
 })
 
 test('secret prompt stays visible while typing and resizing never reveals the password', async () => {

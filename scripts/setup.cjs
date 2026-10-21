@@ -89,7 +89,8 @@ async function main() {
 排查连接问题：          opencode-remote doctor
 完整操作说明：          opencode-remote --help
 
-首次启动会引导填写 SSH、远程目录及认证方式；密码隐藏输入，可选记住。
+首次启动依次填写 IP/主机名、端口（回车默认 22）、账号和密码/密钥，再填写远程目录。
+密码隐藏输入，可选记住；配置完成后，后续直接运行 opencode-remote。
 请保留源码目录：${root}
 更新或移动目录后：在该目录重新运行 npm run setup。
 `)

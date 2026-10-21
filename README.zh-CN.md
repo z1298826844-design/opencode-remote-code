@@ -26,34 +26,33 @@ npm run setup
 opencode-remote
 ```
 
-首次启动会分 4 步显示说明和示例，再收集所需密码。必填项会明确标注；已有值或默认选项会显示“回车使用”，按 Ctrl+C 可随时取消：
+首次启动按提示分别填写 **IP/主机名、端口、账号、密码或密钥**，脚本自动生成连接配置。端口默认 **22**，直接回车即可；其他已有值也可回车保留。按 Ctrl+C 可随时退出：
 
 ```text
 [1/4] 连接哪台远程机器？
-  普通连接：ssh alice@192.168.1.10
-SSH 连接命令（必填）：ssh alice@192.168.1.10
+服务器 IP / 主机名（必填）：192.168.1.10
+SSH 端口 [回车使用：22]：
+登录账号（必填）：alice
 
-[2/4] 要操作远程机器上的哪个目录？
-远程工作目录（必填）：/home/alice/project
-
-[3/4] 如何登录 SSH？
-  1. 密码登录
+[2/4] 如何登录？
+  1. 密码登录（默认）
   2. SSH 密钥
-认证方式（输入 1 或 2） [回车使用：1]：
+认证方式（1=密码，2=密钥） [回车使用：1]：
+SSH 登录密码：
+是否记住SSH 登录密码（y=是，n=否，回车默认否）：
+
+[3/4] 要操作远程机器上的哪个目录？
+远程工作目录（必填）：/home/alice/project
 
 [4/4] 是否需要为 sudo 命令提供密码？
 需要 sudo 密码吗（y=是，n=否，回车默认否）：
 ```
 
-随后按提示输入 SSH 密码，并选择是否记住。密码输入时不会显示字符或星号，输入完成后按回车提交。选择需要 sudo 后，还会单独询问 sudo 密码及是否记住。**SSH 登录密码与 sudo 密码彼此独立**，不用 sudo 也可以使用密码登录。
+密码输入时不会显示字符或星号，输入完成后按回车提交。选择需要 sudo 后，还会单独询问 sudo 密码及是否记住。**SSH 登录密码与 sudo 密码彼此独立**，不用 sudo 也可以使用密码登录。
 
-后续启动自动读取配置：记住密码后直接连接；未记住则每次隐藏输入。密钥认证使用 SSH 命令中的 `-i`，或本地 `SSH_AUTH_SOCK` 指向的 agent；有口令的密钥请先载入 SSH agent。
+选择 **2（SSH 密钥）** 时，按提示填写本机私钥路径，例如 `~/.ssh/id_ed25519`、`~/.ssh/id_rsa` 或 `C:\Users\me\My Keys\id_rsa`，无需加引号或填写 SSH 参数。常用路径存在时会自动提供默认值；请选择私钥，而非 `.pub` 公钥。也可输入 `agent` 使用当前 `SSH_AUTH_SOCK` 指向的 SSH agent；有口令的密钥请先载入 agent，再选择此方式。
 
-```text
-ssh -p 2222 user@host
-ssh -i /absolute/path/id_rsa user@host
-ssh -i "C:\Users\me\My Keys\id_rsa" user@host
-```
+后续运行 `opencode-remote` 自动读取配置：成功记住密码后直接连接；未记住则每次隐藏输入。使用密钥且无需 sudo 密码时直接启动。配置完成后会显示启动、修改和查看配置的命令。
 
 安装与启动命令在 Linux、macOS、Windows 上相同。安装使用 `npm link`，**请保留源码目录**；移动目录后重新运行 `npm run setup`。原有 `launchers/remote-opencode.sh`、`.ps1`、`.bat` 仍可使用，会转交给同一个命令入口。
 
@@ -68,9 +67,7 @@ opencode-remote config
 也可以单独修改：
 
 ```bash
-opencode-remote config set ssh "ssh -p 2222 user@new-host"
 opencode-remote config set workdir /home/project
-opencode-remote config set auth key
 opencode-remote config set sudo true
 ```
 
@@ -93,9 +90,17 @@ opencode-remote config set sudo true
 <details>
 <summary>高级配置与自动化</summary>
 
+需要自定义 SSH 选项时，仍可设置完整连接命令，例如：
+
+```bash
+opencode-remote config set ssh "ssh -oHostKeyAlgorithms=+ssh-rsa -p 2222 alice@host"
+```
+
+交互向导会读取旧连接配置，回填地址、端口、账号和密钥路径，并保留已有的其他 SSH 选项。
+
 | 配置项 | 环境变量 | 默认值 |
 | :--- | :--- | :--- |
-| `ssh` | `REMOTE_SSH` | 必填，完整 SSH 命令 |
+| `ssh` | `REMOTE_SSH` | 向导自动生成；高级用法可填完整 SSH 命令 |
 | `workdir` | `REMOTE_WORKDIR` | 必填，远程绝对路径 |
 | `auth` | `REMOTE_AUTH` | `password`；未指定且 SSH 含 `-i` 时为 `key` |
 | `sudo` | `REMOTE_SUDO` | `false` |

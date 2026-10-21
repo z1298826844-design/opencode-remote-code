@@ -226,6 +226,8 @@ Keep the source checkout: npm link and the plugin loader point to it. After an u
 
 The cross-platform CLI lives in `src/cli/` with its npm bin entry in `bin/opencode-remote.cjs`. Existing scripts in `launchers/` are compatibility wrappers. Do not add connection details or passwords to those scripts.
 
+The interactive wizard collects host/IP, port (Enter defaults to 22), username, and password or a local private key path/agent separately. `src/cli/connection.ts` generates the SSH command internally, pre-fills existing fields, and preserves other SSH options. Keep the plugin's environment-only interface and existing `ssh` config format; users should not need to type a full command in the wizard.
+
 Configuration commands: `config`, `config show`, `config set <key> <value>`, `config unset <key>`, `config forget-password`, and `config reset`. `doctor` checks installation and performs a read-only SSH directory probe. Arguments after `--` are forwarded to OpenCode.
 
 Non-secret settings are stored under `XDG_CONFIG_HOME/opencode-remote/config.json` (default `~/.config/`). Passwords are optional entries in the OS credential store, accessed through `@napi-rs/keyring`; never store passwords in JSON or command arguments. Credential indexes bind secrets to parsed host/user/port. A failed deletion must keep its index so it can be retried. Missing credential services must permit prompting for the current connection without a plaintext fallback.
