@@ -27,6 +27,7 @@
     "setup": "node scripts/setup.cjs",
     "remote": "node bin/opencode-remote.cjs",
     "unregister": "node scripts/setup.cjs --unregister",
+    "test:local": "npm run build && node --test tests/local.test.mjs",
     "test:cli": "npm run build && node --test tests/cli.test.mjs tests/prompt.test.mjs",
     "build": "tsc",
     "postbuild": "node scripts/postbuild.cjs",

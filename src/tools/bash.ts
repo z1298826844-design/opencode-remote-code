@@ -1,3 +1,4 @@
+import { loadLocalSettings } from "../local-settings.js"
 import { tool } from "@opencode-ai/plugin"
 import type { SSHPool } from "../ssh-pool.js"
 
@@ -11,6 +12,10 @@ export function createBashTool(sshPool: SSHPool, defaultWorkdir: string) {
       workdir: tool.schema.string().optional().describe("Working directory on the remote machine (optional)"),
     },
     async execute(args, ctx) {
+      const directCommand = args.command.trim().match(/^(?:["']?)([a-zA-Z0-9][a-zA-Z0-9._-]*)(?:["']?)(?:\s|$)/)?.[1]
+      if (directCommand && loadLocalSettings().windowsCli.includes(directCommand.toLowerCase())) {
+        throw new Error(`${directCommand} is configured as a Windows CLI. Use local_cli with an argument array; this bash tool executes remotely.`)
+      }
       const timeout = args.timeout ?? 120_000
       if (timeout < 0) {
         throw new Error("Timeout must be a non-negative number")
@@ -59,8 +64,9 @@ export function createBashTool(sshPool: SSHPool, defaultWorkdir: string) {
 
       return {
         title: args.description || "bash",
-        output,
+        output: `Execution location: remote\nWorking directory: ${args.workdir ?? defaultWorkdir}\n${output}`,
         metadata: {
+          location: "remote",
           exit: result.exitCode,
           description: args.description,
           stderr: stderr || undefined,

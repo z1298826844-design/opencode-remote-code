@@ -1,4 +1,6 @@
 import fs from "node:fs"
+import path from "node:path"
+import { loadLocalSettings, saveLocalSettings, validateWindowsCli } from "../local-settings.js"
 import { randomUUID } from "node:crypto"
 import { parseSshCommand } from "../config.js"
 import { TerminalPrompt, type Prompter } from "./prompt.js"
@@ -13,6 +15,7 @@ const help = `OpenCode Remote — 在任意目录连接远程工作区
   opencode-remote                       连接；首次使用会引导配置
   opencode-remote config                新建、修改、删除或查看连接
   opencode-remote config new            直接新建连接
+  opencode-remote config windows-cli    配置本机全局 Windows CLI 名称列表
   opencode-remote config list           列出已保存连接
   opencode-remote config show           查看配置及来源（不显示密码）
   opencode-remote config set <项> <值>  修改单项配置
@@ -149,10 +152,11 @@ export class RemoteCLI {
   }
 
   private async manage() {
-    this.print("\n1. 新建连接\n2. 修改连接\n3. 删除连接\n4. 查看连接列表\n0. 返回")
+    this.print("\n1. 新建连接\n2. 修改连接\n3. 删除连接\n4. 查看连接列表\n5. 配置全局 Windows CLI\n0. 返回")
     while (true) {
       const choice = (await this.prompt.text("请选择操作", "4")).trim()
       if (choice === "0") return
+      if (choice === "5") return this.windowsCli([])
       if (choice === "1") return this.configure(undefined, true)
       if (choice === "4") return this.listProfiles()
       if (["2", "3"].includes(choice)) {
@@ -167,7 +171,7 @@ export class RemoteCLI {
         }
         return
       }
-      this.print("请输入 0 到 4 之间的操作编号。")
+      this.print("请输入 0 到 5 之间的操作编号。")
     }
   }
 
@@ -233,7 +237,30 @@ export class RemoteCLI {
     }
   }
 
+  private async windowsCli(args: string[]) {
+    const file = path.join(path.dirname(this.file), "global.json")
+    const current = loadLocalSettings(file).windowsCli
+    if (args[0] === "show" && args.length === 1) {
+      this.print(`本机全局 Windows CLI：${current.join(", ") || "未配置"}\n配置文件：${file}`)
+      return
+    }
+    let names: string[]
+    if (args[0] === "clear" && args.length === 1) names = []
+    else if (args[0] === "set" && args.length > 1) names = validateWindowsCli(args.slice(1).flatMap(a => a.split(/[,，\s]+/)).filter(Boolean))
+    else if (!args.length) {
+      this.print(`本机全局设置，所有服务器共用；只填 Windows PATH 中的命令名，具体用法由 skill/MCP/CLI 帮助提供。\n当前：${current.join(", ") || "未配置"}\n多个命令用逗号分隔；回车保留，输入 - 清空。`)
+      while (true) {
+        const answer = (await this.prompt.text("Windows CLI 名称")).trim()
+        try { names = answer === "-" ? [] : answer ? validateWindowsCli(answer.split(/[,，\s]+/).filter(Boolean)) : current; break }
+        catch (error) { this.print((error as Error).message) }
+      }
+    } else throw new Error("用法：config windows-cli [show | set <命令名...> | clear]")
+    saveLocalSettings(names, file)
+    this.print(`已保存本机全局 Windows CLI：${names.join(", ") || "无"}。新会话会加载最新提示；服务器配置不受影响。`)
+  }
+
   async configCommand(args: string[]) {
+    if (args[0] === "windows-cli") return this.windowsCli(args.slice(1))
     if (!args.length) return this.manage()
     if (args.length === 1 && args[0] === "new") return this.configure(undefined, true)
     if (args.length === 1 && args[0] === "list") return this.listProfiles()
@@ -262,7 +289,7 @@ export class RemoteCLI {
       return
     }
     if (command === "reset" && args.length === 1) {
-      if (!await this.prompt.confirm("清空连接配置及所有已记住密码？会话历史将保留")) return
+      if (!await this.prompt.confirm("清空连接配置及所有已记住密码？会话历史和全局 Windows CLI 将保留")) return
       await forgetPasswords(this.state, this.store, this.persist)
       fs.rmSync(this.file, { force: true })
       this.passwords.clear()

@@ -75,6 +75,50 @@ SSH 登录密码：
 
 安装与启动命令在 Linux、macOS、Windows 上相同。安装使用 `npm link`，**请保留源码目录**；移动目录后重新运行 `npm run setup`。原有 `launchers/remote-opencode.sh`、`.ps1`、`.bat` 仍可使用，会转交给同一个命令入口。
 
+## 🖥️ Windows CLI、本地资料与文件传输
+
+这些能力随 `npm run setup` 一起安装在现有插件中，无需单独启动 MCP 服务。更新源码后重新运行 setup 即可。
+
+先登记 Windows CLI 的**命令名**，所有远程连接共用这一份配置：
+
+```bash
+opencode-remote config windows-cli
+# 也可以直接设置（替换整个列表）
+opencode-remote config windows-cli set docfetch internal-cli
+opencode-remote config windows-cli show
+```
+
+交互配置中，多个名称用逗号分隔，回车保留，输入 `-` 清空；也可运行 `config windows-cli clear`。配置单独保存在 `~/.config/opencode-remote/global.json`（遵循 `XDG_CONFIG_HOME`）：
+
+```json
+{
+  "version": 1,
+  "windowsCli": ["docfetch", "internal-cli"]
+}
+```
+
+这里只标记命令的执行位置，不填写简介、参数或路径。具体用法由已有 skill、MCP 或 CLI 帮助提供。第三方 CLI 必须已经安装在 **Windows PATH** 中；setup 安装插件工具自身的依赖，并检查 PowerShell，不会自动安装任意第三方 CLI。切换、删除或重置服务器连接都不会改变全局列表。
+
+AI 的项目操作默认在远端执行，名单中的命令通过 `local_cli` 在 Windows 执行；找不到命令时会报错，不回退远端。名单是路由提示，不是限制所有本地执行的安全沙箱。MCP 工具调用独立于此名单。
+
+| AI 工具 | 执行位置与用途 |
+| :--- | :--- |
+| `bash`、`read`、`edit` 等原有工具 | 远端项目命令和代码操作 |
+| `local_cli` | 按配置名称调用 Windows CLI，参数以数组传递 |
+| `local_bash` | 明确要求的本地命令；`windows` 使用 Windows PowerShell，`host` 使用本机 shell（WSL 下为 bash） |
+| `local_read` | 读取本地 UTF-8 文本或列出目录；PDF、Office、二进制文件需要先用适当工具提取文本 |
+| `upload` / `download` | 通过当前 SSH/SFTP 连接上传或下载文件、目录，不使用内部镜像目录 |
+
+在 WSL 启动时，Windows CLI 通过 `powershell.exe` 执行，不会误用 WSL 中的同名程序。传输和本地读取接受 `C:\Users\...\file.txt`，也接受 `/mnt/c/Users/.../file.txt`，Windows 路径通过 `wslpath` 转换。Windows 命令默认工作目录为 Windows 用户目录；本机 shell 默认使用本机用户目录，可显式指定其他目录。
+
+可以直接向 AI 描述完整任务：
+
+> 用 Windows 上的 docfetch 下载接口资料，读取后给出修改方案，再修改远端项目。完成验证后，把远端测试报告下载到我的 Windows 下载目录。
+
+本地资料仅供 AI 阅读时无需上传；远端程序需要使用时再传输。传输参数 `localPath` 和 `remotePath` 都是**准确的源/目标路径**，不会自动追加文件名；远端路径限制在本次工作目录内。目录需要 `recursive=true`，已有文件需要显式 `overwrite=true` 并通过权限请求。符号链接和特殊文件会被拒绝。传输使用临时文件完成后发布，失败会报告已完成数量，已完成文件保留，源文件不删除。远端覆盖要求服务器支持原子 POSIX rename（OpenSSH 支持）；不支持时会报错，保留原目标文件。
+
+本地执行、读取和传输均经过 OpenCode 权限机制，结果标明操作位置。读取单文件上限 10 MiB，本地命令输出上限 64 KiB；大文件可传输，阅读时应先用本地解析工具提取所需内容。
+
 ## ⚙️ 修改配置
 
 打开连接管理菜单：
@@ -83,7 +127,7 @@ SSH 登录密码：
 opencode-remote config
 ```
 
-菜单提供 **新建连接、修改连接、删除连接、查看连接列表**。修改和删除时先选择连接；删除需要确认，并保留会话历史和系统凭据（多个连接可能共用凭据）。如需清除密码，使用 `config forget-password`。
+菜单提供 **新建连接、修改连接、删除连接、查看连接列表、配置全局 Windows CLI**。修改和删除时先选择连接；删除需要确认，并保留会话历史和系统凭据（多个连接可能共用凭据）。如需清除密码，使用 `config forget-password`。
 
 也可以单独修改**上次选择的连接**，`workdir` 是它下次启动时提示的默认目录：
 
@@ -99,7 +143,7 @@ opencode-remote config set sudo true
 | `opencode-remote config show` | 查看连接列表及上次选择连接的配置来源，不显示密码 |
 | `opencode-remote config unset <配置项>` | 删除保存值，恢复默认或下次填写 |
 | `opencode-remote config forget-password` | 清除所有登记目标的已记住密码 |
-| `opencode-remote config reset` | 确认后清空配置和密码，保留会话历史 |
+| `opencode-remote config reset` | 确认后清空服务器配置和密码，保留会话历史及全局 Windows CLI |
 | `opencode-remote doctor` | 检查 OpenCode、插件注册、SSH 认证和远程目录，不执行 sudo |
 | `opencode-remote --help` | 查看操作指引和示例 |
 | `opencode-remote --version` | 查看版本 |
@@ -174,7 +218,7 @@ npm uninstall -g opencode-remote-code
 
 `config reset` 会询问确认，不删除会话历史。只想卸载并保留连接配置时，跳过第一行。自定义 `OPENCODE_CONFIG_DIR` 的用户，在安装、启动、卸载时使用相同的设置。插件通过独立的入口文件注册，不改写现有 `opencode.json`；从旧版迁移时，请移除手工添加的重复插件配置。
 
-开发验证：`npm run lint`、`npm run test:cli`。CLI 测试不需要外部 SSH 目标；原有 SSH 端到端测试仍使用 `.env.test`。
+开发验证：`npm run lint`、`npm run test:cli`、`npm run test:local`。CLI 测试不需要外部 SSH 目标；原有 SSH 端到端测试仍使用 `.env.test`。
 
 ---
 

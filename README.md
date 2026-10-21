@@ -38,6 +38,41 @@ After directory selection, remembered passwords are retrieved automatically; oth
 
 The install and launch commands are the same on Linux, macOS, and Windows. Setup uses `npm link`, so **keep the source directory**. Rerun `npm run setup` after moving it. The existing `launchers/remote-opencode.sh`, `.ps1`, and `.bat` scripts remain compatibility wrappers for the same CLI. Terminal prompts currently use Chinese; command names and configuration keys are shown below.
 
+## 🖥️ Windows CLIs, local references, and file transfer
+
+The existing plugin installs these tools automatically through `npm run setup`; no separate MCP server is needed. Register **command names only**, globally for all saved server connections:
+
+```bash
+opencode-remote config windows-cli
+opencode-remote config windows-cli set docfetch internal-cli
+opencode-remote config windows-cli show
+opencode-remote config windows-cli clear
+```
+
+`set` replaces the entire list. In the wizard, separate names with commas, press Enter to keep the current list, or enter `-` to clear it. Settings live separately in `~/.config/opencode-remote/global.json` (respecting `XDG_CONFIG_HOME`):
+
+```json
+{ "version": 1, "windowsCli": ["docfetch", "internal-cli"] }
+```
+
+No descriptions, arguments, executable paths, or credentials belong in this list. Existing skills, MCP tools, or CLI help provide usage instructions. Listed CLIs must already be installed on **Windows PATH**. Setup installs plugin dependencies and checks PowerShell; it does not install arbitrary third-party CLIs. Server edits, deletions, and resets leave this global configuration intact.
+
+| AI tool | Location and purpose |
+| :--- | :--- |
+| Existing `bash`, `read`, `edit`, etc. | Remote project operations by default |
+| `local_cli` | Invoke a listed Windows CLI by name with an argument array |
+| `local_bash` | Explicit local shell tasks: `windows` means Windows PowerShell, `host` means the host shell (bash in WSL) |
+| `local_read` | Read local UTF-8 text or list a directory; parse PDF/Office/binary formats with appropriate local tools first |
+| `upload` / `download` | Copy files or directories through the current SFTP connection, independently of the internal mirror |
+
+On WSL, Windows commands run through `powershell.exe`, not a same-named Linux program. Local reads and transfers accept Windows drive paths and WSL absolute paths; `wslpath` handles conversion. Windows commands default to the Windows user profile directory; host-shell commands default to the host home directory. A working directory can be supplied explicitly. Missing Windows commands fail without falling back to remote execution. This list supplies routing guidance, not a security sandbox. MCP calls remain independent.
+
+For example, ask the AI to download reference material with a Windows CLI, read it locally, propose changes, edit and test the remote project, then download a report. References can stay local unless a remote process needs them.
+
+Transfer arguments `localPath` and `remotePath` are **exact source/destination paths**, with no automatic basename insertion. Remote paths must remain in the current workspace. Directories require `recursive=true`; existing files require explicit `overwrite=true` and permission. Symlinks and special files are refused. Files are staged before publication; failures report completed files, which remain in place. Sources are never deleted. Remote atomic overwrite requires the POSIX rename extension (supported by OpenSSH); unsupported servers fail without deleting the old destination.
+
+Local execution, reading, and transfers use OpenCode permission requests and report execution locations. Text reads support files up to 10 MiB; local command output is capped at 64 KiB. Larger files can be transferred and processed with a local parser.
+
 ## ⚙️ Change configuration
 
 Open the connection management menu:
@@ -46,7 +81,7 @@ Open the connection management menu:
 opencode-remote config
 ```
 
-Choose **create, edit, delete, or list connections**. Editing and deleting ask which connection to use; deletion requires confirmation and preserves session history and system credentials, which may be shared with other profiles. Use `config forget-password` to clear credentials.
+Choose **create, edit, delete, list connections, or configure global Windows CLIs**. Editing and deleting ask which connection to use; deletion requires confirmation and preserves session history and system credentials, which may be shared with other profiles. Use `config forget-password` to clear credentials.
 
 Or update individual settings for the **last-selected connection**. Its `workdir` is the default offered on the next launch:
 
@@ -62,7 +97,7 @@ opencode-remote config set sudo true
 | `opencode-remote config show` | List connections and show effective settings for the last-selected connection, without passwords |
 | `opencode-remote config unset <key>` | Remove a saved value; use its default or prompt next time |
 | `opencode-remote config forget-password` | Delete remembered passwords for all tracked targets |
-| `opencode-remote config reset` | Confirm, then clear settings and passwords; keep session history |
+| `opencode-remote config reset` | Confirm, then clear server settings and passwords; keep session history and global Windows CLIs |
 | `opencode-remote doctor` | Check OpenCode, plugin registration, SSH authentication, and remote directory access; never run sudo |
 | `opencode-remote --help` | Show usage and examples |
 | `opencode-remote --version` | Show the version |
@@ -137,7 +172,7 @@ npm uninstall -g opencode-remote-code
 
 Reset asks for confirmation and preserves session history. Skip the first command to keep settings. If you use `OPENCODE_CONFIG_DIR`, keep it consistent during setup, launch, and removal. Registration uses a separate plugin entry file and leaves `opencode.json` intact. When migrating from an older manual installation, remove duplicate plugin entries you previously added.
 
-Development checks: `npm run lint` and `npm run test:cli`. CLI tests do not need an external SSH server; the existing live SSH suites still use `.env.test`.
+Development checks: `npm run lint`, `npm run test:cli`, and `npm run test:local`. CLI tests do not need an external SSH server; the existing live SSH suites still use `.env.test`.
 
 ---
 

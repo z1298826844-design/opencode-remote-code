@@ -79,6 +79,11 @@ async function main() {
     if (process.platform === 'win32') console.log('Windows：设置 → 系统 → 关于 → 高级系统设置 → 环境变量 → 用户 Path。')
     else console.log(`Bash/Zsh：在 ~/.bashrc 或 ~/.zshrc 中加入 export PATH=${"'" + binDir.replace(/'/g, "'\\''") + "'"}:"$PATH"`)
   }
+  const isWsl = process.platform === 'linux' && /microsoft/i.test(os.release())
+  if (process.platform === 'win32' || isWsl) {
+    const ps = spawn.sync('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', '$PSVersionTable.PSVersion.ToString()'], { encoding: 'utf8', timeout: 10000 })
+    console.log(ps.status === 0 ? `Windows PowerShell 已检测到：${ps.stdout.trim()}` : '未检测到 powershell.exe；Windows CLI 工具需要 Windows PowerShell 可从当前 PATH 调用。')
+  }
   console.log(`
 安装完成！
 
@@ -88,11 +93,14 @@ async function main() {
 查看当前配置：          opencode-remote config show
 清除已记住密码：        opencode-remote config forget-password
 排查连接问题：          opencode-remote doctor
+全局 Windows CLI：      opencode-remote config windows-cli
 完整操作说明：          opencode-remote --help
 
 首次启动填写连接名称、IP/主机名、端口（默认 22）、账号和密码/密钥、远程目录。
 后续运行 opencode-remote：选服务器，再确认目录；回车沿用该连接上次路径，也可填写新路径。
 密码隐藏输入，可选记住；旧版配置会自动迁移。
+本地执行、读取、上传、下载工具已随插件安装，无需单独配置 MCP。
+Windows CLI 只需全局登记命令名（各服务器共用）；第三方 CLI 需已安装在 Windows PATH 中。
 请保留源码目录：${root}
 更新或移动目录后：在该目录重新运行 npm run setup。
 `)

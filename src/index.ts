@@ -14,6 +14,10 @@ import { createGrepTool } from "./tools/grep.js"
 import { createPatchTool } from "./tools/patch.js"
 import { createReadTool } from "./tools/read.js"
 import { createWriteTool } from "./tools/write.js"
+import { createLocalTools } from "./tools/local.js"
+import { createTransferTool } from "./tools/transfer.js"
+import { loadLocalSettings } from "./local-settings.js"
+import { localPlatform } from "./local-runtime.js"
 import { buildRemoteSystemPrompt } from "./remote-system-prompt.js"
 
 async function logDebug(msg: string) {
@@ -71,6 +75,9 @@ const RemoteCodePlugin: Plugin = async (input, options) => {
   const remoteWorkdir = config.remoteWorkdir
 
   const tools = {
+    ...createLocalTools(),
+    upload: createTransferTool("upload", sshPool, config.remoteWorkdir, config.host),
+    download: createTransferTool("download", sshPool, config.remoteWorkdir, config.host),
     bash: createBashTool(sshPool, config.remoteWorkdir),
     glob: createGlobTool(config, sshPool),
     grep: createGrepTool(config, sshPool),
@@ -104,6 +111,10 @@ const RemoteCodePlugin: Plugin = async (input, options) => {
         {
           modelID: _input.model?.api?.id ?? _input.model?.id ?? "default",
           remoteWorkdir,
+          remoteHost: config.host,
+          localPlatform: localPlatform(),
+          localHome: os.homedir(),
+          windowsCli: loadLocalSettings().windowsCli,
           remotePlatform,
           isGitRepo,
           sshPool,

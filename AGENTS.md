@@ -280,3 +280,11 @@ Both suites will fail early with a clear message if `REMOTE_SSH` is missing.
 ### Test Artifacts
 
 Temporary files created during debugging (e.g. `tmp_test_*.js`) should be placed in `tmp_test_artifacts/` (already gitignored via `tmp_*`).
+
+## Local tools and Windows CLI routing
+
+- `global.json` beside the connection config stores version 1 `{ windowsCli: string[] }`. This is independent of server profiles; resetting connections must preserve it. `config windows-cli [show|set <names...>|clear]` manages names only. Do not add command descriptions, executable paths, or credentials here.
+- `local_cli` resolves configured names from Windows PATH through PowerShell, including under WSL. `local_bash` explicitly selects host or Windows execution. Ordinary project tools remain remote. The name list guides routing, not sandboxing; MCP calls remain independent.
+- `local_read` reads local text; binary document formats need an appropriate parser. `upload`/`download` copy exact source/destination paths over the existing SFTP pool, never via the internal mirror. Remote transfer paths stay in the workspace, symlinks are refused, recursive/overwrite operations must be explicit. Use existing OpenCode permission requests for local execution/read and transfers.
+- Local child processes must not inherit REMOTE_* secrets. Windows paths in WSL use wslpath rather than assuming /mnt/c. Update the remote system prompt with both environments and tool-routing instructions; preserve skill instructions.
+- `npm run test:local` covers global-config isolation, local tool permissions, Windows/WSL execution where available, transfers and failures, plus an in-process SSH/SFTP binary round trip. No external target is required.
