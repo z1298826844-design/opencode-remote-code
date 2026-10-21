@@ -61,6 +61,20 @@ test('password login works without sudo, saves no plaintext, and reuses remember
   if (process.platform !== 'win32') assert.equal(fs.statSync(f.file).mode & 0o777, 0o600)
 })
 
+test('wizard explains each step and retries empty required input with an example', async () => {
+  const f = fixture('guidance', ['', 'ssh user@host', '/work', '1', false, 'login', false])
+  await f.cli.configure()
+  const output = f.output.join('\n')
+  for (const step of ['[1/4]', '[2/4]', '[3/4]', '[4/4]']) assert(output.includes(step))
+  assert(output.includes('ssh alice@192.168.1.10'))
+  assert(output.includes('还没有填写SSH 连接命令'))
+  assert(output.includes('输入时不会显示字符或星号'))
+  assert(!output.includes('ssh 不能为空'))
+  assert.equal(f.prompts.filter(p => p.label === 'SSH 连接命令（必填）').length, 2)
+  assert(output.includes('登录方式：SSH 密码'))
+  assert(output.includes('sudo 密码：不需要'))
+})
+
 test('unremembered passwords prompt on next launch; sudo credentials are independent', async () => {
   const f = fixture('prompt', ['ssh user@host', '/work', '1', true, 'login', false, 'sudo-other', false])
   await f.cli.configure()

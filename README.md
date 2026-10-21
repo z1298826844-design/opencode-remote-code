@@ -26,7 +26,7 @@ Setup installs dependencies, builds the plugin, registers it with OpenCode, and 
 opencode-remote
 ```
 
-The first-run wizard asks for the SSH command, remote absolute directory, authentication method (password or key), and whether sudo needs a password. Passwords are entered with hidden input, with a separate choice to remember each one. **SSH login and sudo passwords are independent**: password login works without enabling sudo.
+The first-run wizard uses four numbered steps with examples: the SSH command, remote absolute directory, authentication method (password or key), and whether sudo needs a password. Required fields and Enter defaults are displayed beside the input. Press Ctrl+C to cancel. Password prompts remain visible, but typed passwords display no characters or asterisks; press Enter to submit. Each password has a separate choice to remember it. **SSH login and sudo passwords are independent**: password login works without enabling sudo.
 
 Later launches reuse your connection settings. Remembered passwords are retrieved automatically; otherwise the launcher prompts each time. Key authentication uses `-i` or an agent referenced by `SSH_AUTH_SOCK`. Load passphrase-protected keys into your SSH agent first.
 

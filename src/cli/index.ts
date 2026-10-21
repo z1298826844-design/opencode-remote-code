@@ -50,9 +50,14 @@ export class RemoteCLI {
 
   private async field(key: Setting, label: string, defaultValue = "") {
     while (true) {
-      const input = await this.prompt.text(label, defaultValue)
+      const input = await this.prompt.text(`${label}${defaultValue ? "" : "（必填）"}`, defaultValue)
+      if (!input.trim()) {
+        const example = key === "ssh" ? "ssh alice@192.168.1.10" : "/home/alice/project"
+        this.print(`还没有填写${label}。请输入具体内容，例如 ${example}，再按回车。`)
+        continue
+      }
       try { return validate(key, input) }
-      catch (error) { this.print((error as Error).message) }
+      catch (error) { this.print(`${label}填写有误：${(error as Error).message}`) }
     }
   }
 
@@ -92,9 +97,11 @@ export class RemoteCLI {
     if (!configure && current) return current
     const stored = await this.readStored(id, kind)
     if (!configure && stored) return stored
+    this.print(`\n${label}：输入时不会显示字符或星号，输入完成后按回车提交。`)
+    if (stored) this.print("已有记住的密码；直接回车可保留，输入新密码可替换。")
     let password = ""
     while (!password) {
-      password = await this.prompt.text(`${label}（隐藏输入${stored ? "，回车保留已记住的密码" : ""}）`, "", true)
+      password = await this.prompt.text(label, "", true)
       if (!password && stored) password = stored
       if (!password) this.print("密码不能为空。密钥认证请运行 opencode-remote config set auth key。")
     }
@@ -108,28 +115,38 @@ export class RemoteCLI {
   }
 
   async configure() {
-    this.print("连接配置（回车保留原值；密码隐藏输入）")
+    this.print("\nOpenCode Remote · 连接配置")
+    this.print("按下面 4 个步骤填写。有默认值时可直接回车使用；按 Ctrl+C 随时取消。")
     const defaults = effective(this.state, this.env).values
-    this.state.values.ssh = await this.field("ssh", "SSH 连接命令，例如 ssh user@host", String(defaults.ssh || ""))
-    this.state.values.workdir = await this.field("workdir", "远程绝对目录，例如 /home/project", String(defaults.workdir || ""))
+    this.print("\n[1/4] 连接哪台远程机器？")
+    this.print("填写完整 SSH 命令，把示例中的账号和地址替换为你的远程账号、IP 或主机名。")
+    this.print("  普通连接：ssh alice@192.168.1.10\n  指定端口：ssh -p 2222 alice@192.168.1.10\n  使用密钥：ssh -i ~/.ssh/id_rsa alice@192.168.1.10")
+    this.state.values.ssh = await this.field("ssh", "SSH 连接命令", String(defaults.ssh || ""))
+    this.print("\n[2/4] 要操作远程机器上的哪个目录？")
+    this.print("填写远程项目的绝对路径，必须以 / 开头，例如 /home/alice/project。")
+    this.state.values.workdir = await this.field("workdir", "远程工作目录", String(defaults.workdir || ""))
     const parsed = parseSshCommand(String(this.state.values.ssh))
     let auth = String(parsed.identity ? "key" : defaults.auth)
+    this.print("\n[3/4] 如何登录 SSH？")
+    this.print("  1. 密码登录：稍后输入远程账号的登录密码。\n  2. SSH 密钥：使用命令中的 -i 密钥，或本地 SSH agent。")
     while (true) {
-      const answer = await this.prompt.text("认证方式：[1] 密码 [2] SSH 密钥", auth === "key" ? "2" : "1")
+      const answer = (await this.prompt.text("认证方式（输入 1 或 2）", auth === "key" ? "2" : "1")).trim().toLowerCase()
       if (["1", "password", "2", "key"].includes(answer)) {
         auth = ["2", "key"].includes(answer) ? "key" : "password"
         break
       }
-      this.print("请输入 1 或 2。")
+      this.print("请输入 1（密码登录）或 2（SSH 密钥），然后按回车。")
     }
     this.state.values.auth = auth
-    this.state.values.sudo = await this.prompt.confirm("是否需要 sudo 密码", defaults.sudo === true)
+    this.print("\n[4/4] 是否需要为 sudo 命令提供密码？")
+    this.print("只需普通登录时直接回车选“否”。SSH 登录密码与 sudo 密码分别配置。")
+    this.state.values.sudo = await this.prompt.confirm("需要 sudo 密码吗", defaults.sudo === true)
     checkAuthentication(this.state.values, this.env)
     this.persist()
     const id = targetId(String(this.state.values.ssh))
     if (auth === "password") await this.password(id, "ssh", true)
     if (this.state.values.sudo) await this.password(id, "sudo", true)
-    this.print(`连接配置已保存：${this.file}\n启动：opencode-remote\n查看配置：opencode-remote config show`)
+    this.print(`\n连接配置已保存：${this.file}\n  远程连接：${this.state.values.ssh}\n  工作目录：${this.state.values.workdir}\n  登录方式：${auth === "key" ? "SSH 密钥" : "SSH 密码"}\n  sudo 密码：${this.state.values.sudo ? "需要" : "不需要"}\n\n启动：opencode-remote\n修改配置：opencode-remote config\n查看配置：opencode-remote config show`)
     const overrides = Object.values(settings).filter(spec => this.env[spec.env]).map(spec => spec.env)
     if (overrides.length) this.print(`当前环境变量优先于已保存配置：${overrides.join(", ")}`)
   }
